@@ -1,0 +1,55 @@
+{
+  "seed": 20261123,
+  "frozen_test_locked": true,
+  "zero_leakage_verified": true,
+  "splits": {
+    "observe": {
+      "total_rows": 220,
+      "by_subset": {
+        "real_cf": 100,
+        "consent_5p": 48,
+        "long_50t": 12,
+        "decider_replay": 60
+      },
+      "project_groups": [
+        "chitako-drable",
+        "pi-loopedslm"
+      ],
+      "num_families": 64,
+      "sha256": "0c0c014f4b3e648623e2d25150f3cd06fcc2632054b420438d72b13dafec1277",
+      "file": "data/local_private/observe.jsonl"
+    },
+    "select_dev": {
+      "total_rows": 200,
+      "by_subset": {
+        "real_cf": 80,
+        "consent_5p": 48,
+        "long_50t": 12,
+        "decider_replay": 60
+      },
+      "project_groups": [
+        "chitako-drive",
+        "omp-tmp"
+      ],
+      "num_families": 54,
+      "sha256": "b9708823de728f357959778edb39ba3efabf897a6879a3540c804de10cf5b381",
+      "file": "data/local_private/select_dev.jsonl"
+    },
+    "frozen_test": {
+      "total_rows": 200,
+      "by_subset": {
+        "real_cf": 80,
+        "consent_5p": 48,
+        "long_50t": 12,
+        "decider_replay": 60
+      },
+      "project_groups": [
+        "carla-ja",
+        "home-sit"
+      ],
+      "num_families": 54,
+      "sha256": "10d3aa5049b5138029affa90f60351cd9bbb0e444ad20619cb700122b6f0c595",
+      "file": "data/local_private/frozen_test.jsonl"
+    }
+  }
+}

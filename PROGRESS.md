@@ -14,7 +14,10 @@
   - [`scripts/inspect_qwen35.py`](scripts/inspect_qwen35.py) で `Qwen/Qwen3.5-0.8B` 全 24 層構造（`linear_attention` 18 層＋`full_attention` 6 層: `3,7,11,15,19,23`）、トークナイザ整合性（`exact_concat_match_A/B = True`）、4GB VRAM ベンチマーク（`AutoModelForCausalLM` + スロット限定 `lm_head` で 4096 tok が `1921.61 MB` / `1071.84 ms`）を実測
   - [`scripts/inspect_sessions.py`](scripts/inspect_sessions.py) でローカル実セッション 23 本（888 件の非 read-only アクションチェックポイント）を監査し、プロジェクト単位で完全分離した 3 分割案を策定
   - 設計書 [`docs/phase0_design.md`](docs/phase0_design.md) 作成
-- [ ] **Phase 1**：`automode/view.py`・`automode/questions.py`・リークゼロ 3 分割データ（`frozen_test` SHA-256 凍結）・統一評価ハーネス・`diagnose.py` 実装 ＋ **Track 0（Zero-Shot / Oracle Prompt 上限 / 内部診断）**
+- [x] **Phase 1**：`automode/view.py`・`automode/questions.py`・リークゼロ 3 分割データ（`frozen_test` SHA-256 凍結）・統一評価ハーネス・`diagnose.py` 実装 ＋ **Track 0（Zero-Shot / Oracle Prompt 上限 / 内部診断）**（2026-11-23）
+  - 3 分割データ生成 (`observe` 220 件 / `select_dev` 200 件 / `frozen_test` 200 件、SHA-256 ロック済)、単体テスト 5/5 通過
+  - Track 0a (Plain Zero-Shot) と Track 0b (Plain-wrapped Oracle Prompt) を `select_dev` 上で計測: `(A)` バイアスが強く Recall@0.5 が `0.05` / `0.0`、Order Flip Rate が `0.9625` / `1.0` となることを特定
+  - 24 層診断 ([`experiments/track0_diagnostics.md`](experiments/track0_diagnostics.md)): 中間〜終盤層（L15/L19 Full-Attn, L22）に `P3-P2` 分離信号（L22 で `+0.360`）と L4/L22 の線形分離（`real_cf` 2-fold probe AUROC `0.760` / `0.670`）が出現する一方、L22–L23 で打ち消される現象・Oracle 形式ギャップを確認
 - [ ] **Phase 2**：**Track 1（Context-to-Weight 焼き込み ＋ STEER2EDIT ＋ Null-Space 射影 ＋ 3 点因果サニティテスト）**
 - [ ] **Phase 3**：**Track 2（複数軌跡 WSP 探索ループ ＋ 3 軸回帰ゲート ＋ Leave-One-Out アブレーション）** → 最後に 1 回のみ `frozen_test` 解禁
 - [ ] **Phase 4**：`Q8_0` GGUF 変換・`llama-server` 構築・`bf16` vs `Q8_0` パリティ検証・`second_reading` / 差し戻しループ実測
@@ -27,8 +30,8 @@
 
 | Track | 手法概要 | `% modified params` | 対象 Split | 実ログ AUROC | 実ログ Recall@0.5 | 実ログ FPR@0.5 | 5 パターン (P2 Allow / P3 Block) | Flip Rate | 長文 50T 保持 | 汎用 `decider` Acc / ECE | `Q8_0` パリティ誤差 |
 |---|---|---:|---|---|---|---|---|---|---|---|---|
-| **Track 0a** | 未編集 Zero-Shot (Plain Layout) | 0.00% | `select_dev` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
-| **Track 0b** | 未編集 Oracle Prompt 上限 | 0.00% | `select_dev` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
+| **Track 0a** | 未編集 Zero-Shot (Plain Layout) | 0.00% | `select_dev` | 0.5697 | 0.0500 | 0.0000 | Acc 0.3333 (`1.00 / 0.00`) | 0.9625 (rc) / 1.00 (c5) | 0.5833 (recap ON: 0.5833) | 0.5333 / 0.1687 | 未実行 |
+| **Track 0b** | 未編集 Oracle Prompt (Plain Context) | 0.00% | `select_dev` | 0.6016 | 0.0000 | 0.0000 | Acc 0.3333 (`1.00 / 0.00`) | 1.0000 | 0.5000 (recap ON: 0.5000) | 0.5333 / 0.1687 | 未実行 |
 | **Track 1** | Context-to-Weight + STEER2EDIT + Null-Space (Gradient-Free) | 未実行 | `select_dev` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
 | **Track 2** | 複数軌跡 WSP + 3 軸ゲート + LOO アブレーション (Gradient-Free) | 未実行 | `select_dev` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
 | **Track 2 (Final)** | Track 2 勝者パッチ（凍結評価 1 回限り） | 未実行 | `frozen_test` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
@@ -41,3 +44,7 @@
 - [`docs/phase0_design.md`](docs/phase0_design.md) — Phase 0 アーキテクチャ・VRAM・3 分割データ・ディレクトリ設計書
 - [`experiments/phase0_model_inspection.json`](experiments/phase0_model_inspection.json) — `Qwen/Qwen3.5-0.8B` 実機モジュール／トークナイザ／4GB VRAM 実測ログ
 - [`experiments/phase0_sessions_summary.json`](experiments/phase0_sessions_summary.json) — 匿名化ローカルセッションログ監査（生テキスト・機密情報非含有）
+- [`data/manifest.json`](data/manifest.json) — 3 分割データセット件数・SHA-256 ロックマニフェスト
+- [`experiments/track0a_zeroshot_dev.md`](experiments/track0a_zeroshot_dev.md) — Track 0a Plain Zero-Shot 評価レポート
+- [`experiments/track0b_oracle_dev.md`](experiments/track0b_oracle_dev.md) — Track 0b Oracle Prompt 評価レポート
+- [`experiments/track0_diagnostics.md`](experiments/track0_diagnostics.md) — Track 0 24 層 Logit Lens・4 バケット誤判定・Plain vs Oracle 診断レポート
