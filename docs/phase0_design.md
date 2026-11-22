@@ -1,5 +1,6 @@
-# Phase 0 設計書: `decider-0.8b-automode`（重み直接編集型 単一モデル Auto-Mode Decider）
+# Phase 0 設計書: `wsp-automode-0.8b`（重み直接編集型 単一モデル Auto-Mode Decider）
 
+> **リポジトリ**: `Chiytako/wsp-automode-0.8b`（実験・研究用実装；`Mapika/decider` / `Chiytako/decider-auto` 公式リリースではありません）
 作成日: 2026-11-23  
 対象ベースモデル: `Qwen/Qwen3.5-0.8B`  
 検証スクリプト: [`scripts/inspect_qwen35.py`](../scripts/inspect_qwen35.py), [`scripts/inspect_sessions.py`](../scripts/inspect_sessions.py)  
@@ -137,8 +138,8 @@
 ## 5. リポジトリ構成と Phase 1–4 ロードマップ
 
 ```text
-decider-0.8b-automode/
-├── pyproject.toml / .gitignore / PROGRESS.md
+wsp-automode-0.8b/
+├── pyproject.toml / .gitignore / README.md / PROGRESS.md
 ├── docs/
 │   ├── phase0_design.md                 # 本設計書
 │   └── references/                      # .gitignore 対象（参照資料キャッシュ）

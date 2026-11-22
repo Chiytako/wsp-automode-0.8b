@@ -1,4 +1,6 @@
-# `decider-0.8b-automode` 研究開発進捗トラッカー
+# `wsp-automode-0.8b` 研究開発進捗トラッカー
+
+> **リポジトリ**: [`Chiytako/wsp-automode-0.8b`](https://github.com/Chiytako/wsp-automode-0.8b)（`Qwen/Qwen3.5-0.8B` 上の無勾配 Weight-Space Programming 実験実装であり、`Mapika/decider` や `Chiytako/decider-auto` の公式リリースではありません）
 
 勾配降下法（SFT / LoRA）を使わず、**重み直接編集（Context-to-Weight 焼き込み・STEER2EDIT＋Null-Space 射影・因果検証付き Weight-Space Programming）** を主軸として、`Qwen/Qwen3.5-0.8B` 単体で動作する高精度・完全 2 値・`llama.cpp` (`Q8_0` GGUF) 互換の Auto-Mode Decider を構築・検証するプロジェクトの経過記録です。
 
