@@ -1,0 +1,639 @@
+{
+  "scan_roots": [
+    "/home/sit/.claude/projects/*/*.jsonl",
+    "/home/sit/.pi/agent/sessions/*/*.jsonl",
+    "/home/sit/.omp/agent/sessions/*/*.jsonl"
+  ],
+  "readonly_tools": [
+    "Glob",
+    "Grep",
+    "Read",
+    "ToolSearch",
+    "WebFetch",
+    "WebSearch",
+    "fetch_content",
+    "fffind",
+    "ffgrep",
+    "read",
+    "source_check",
+    "wait",
+    "web_search"
+  ],
+  "meta_interactive_tools": [
+    "AskUserQuestion",
+    "TaskStop",
+    "ask_user_question",
+    "mcp__t3-code__t3_background_wait"
+  ],
+  "totals": {
+    "sessions": 23,
+    "sessions_with_actionable_tools": 13,
+    "user_messages": 76,
+    "tool_calls_total": 988,
+    "tool_calls_readonly": 91,
+    "actionable_checkpoints": 888
+  },
+  "by_project_group": {
+    "carla-ja": {
+      "session_count": 1,
+      "user_messages": 8,
+      "tool_calls_total": 61,
+      "tool_calls_readonly": 2,
+      "actionable_checkpoints": 57,
+      "session_ids": [
+        "claude_adf004f1"
+      ]
+    },
+    "chitako-drable": {
+      "session_count": 5,
+      "user_messages": 16,
+      "tool_calls_total": 277,
+      "tool_calls_readonly": 21,
+      "actionable_checkpoints": 252,
+      "session_ids": [
+        "claude_2deedcc5",
+        "claude_f6a4858b",
+        "claude_9aa375dd",
+        "claude_e9d5cb5c",
+        "claude_b2312f21"
+      ]
+    },
+    "chitako-drive": {
+      "session_count": 2,
+      "user_messages": 5,
+      "tool_calls_total": 272,
+      "tool_calls_readonly": 32,
+      "actionable_checkpoints": 240,
+      "session_ids": [
+        "claude_6d82a0b0",
+        "claude_35437ff0"
+      ]
+    },
+    "home-sit": {
+      "session_count": 6,
+      "user_messages": 28,
+      "tool_calls_total": 63,
+      "tool_calls_readonly": 1,
+      "actionable_checkpoints": 61,
+      "session_ids": [
+        "claude_c81d38e6",
+        "claude_a7f6523d",
+        "claude_f712f02d",
+        "claude_c5cce1b5",
+        "claude_b3c51f25",
+        "claude_a978889e"
+      ]
+    },
+    "omp-tmp": {
+      "session_count": 1,
+      "user_messages": 8,
+      "tool_calls_total": 142,
+      "tool_calls_readonly": 24,
+      "actionable_checkpoints": 118,
+      "session_ids": [
+        "omp_0b26035b"
+      ]
+    },
+    "pi-home-sit": {
+      "session_count": 2,
+      "user_messages": 3,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "actionable_checkpoints": 0,
+      "session_ids": [
+        "pi_e8c78b4d",
+        "pi_b261c958"
+      ]
+    },
+    "pi-loopedslm": {
+      "session_count": 6,
+      "user_messages": 8,
+      "tool_calls_total": 173,
+      "tool_calls_readonly": 11,
+      "actionable_checkpoints": 160,
+      "session_ids": [
+        "pi_dd622eeb",
+        "pi_37d6262b",
+        "pi_0094bf14",
+        "pi_6fe6f496",
+        "pi_d33db6de",
+        "pi_b95b4213"
+      ]
+    }
+  },
+  "proposed_zero_leakage_partition": {
+    "strategy": "strict project_group disjoint split (no project or session crosses splits)",
+    "project_to_split": {
+      "chitako-drable": "observe",
+      "pi-loopedslm": "observe",
+      "pi-home-sit": "observe",
+      "chitako-drive": "select_dev",
+      "omp-tmp": "select_dev",
+      "carla-ja": "frozen_test",
+      "home-sit": "frozen_test"
+    },
+    "actionable_checkpoints_per_split": {
+      "frozen_test": 118,
+      "observe": 412,
+      "select_dev": 358
+    },
+    "sessions_per_split": {
+      "frozen_test": 7,
+      "observe": 13,
+      "select_dev": 3
+    }
+  },
+  "sessions": [
+    {
+      "anon_id": "claude_adf004f1",
+      "source": "claude",
+      "project_group": "carla-ja",
+      "total_records": 531,
+      "assistant_turns": 134,
+      "user_message_count": 8,
+      "tool_calls_total": 61,
+      "tool_calls_readonly": 2,
+      "tool_calls_meta_interactive": 2,
+      "tool_calls_non_readonly_actionable": 57,
+      "tool_counts_by_name": {
+        "Agent": 3,
+        "Bash": 53,
+        "ToolSearch": 2,
+        "Write": 1,
+        "mcp__t3-code__t3_background_wait": 2
+      },
+      "final_view_chars": 16279,
+      "approx_final_view_tokens": 5426,
+      "checkpoint_view_chars": {
+        "min": 661,
+        "median": 7683,
+        "max": 16279,
+        "approx_max_tokens": 5426
+      }
+    },
+    {
+      "anon_id": "claude_2deedcc5",
+      "source": "claude",
+      "project_group": "chitako-drable",
+      "total_records": 8,
+      "assistant_turns": 0,
+      "user_message_count": 1,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 518,
+      "approx_final_view_tokens": 173,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "claude_f6a4858b",
+      "source": "claude",
+      "project_group": "chitako-drable",
+      "total_records": 73,
+      "assistant_turns": 9,
+      "user_message_count": 3,
+      "tool_calls_total": 4,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 4,
+      "tool_counts_by_name": {
+        "Bash": 4
+      },
+      "final_view_chars": 2433,
+      "approx_final_view_tokens": 811,
+      "checkpoint_view_chars": {
+        "min": 1536,
+        "median": 2354,
+        "max": 2518,
+        "approx_max_tokens": 839
+      }
+    },
+    {
+      "anon_id": "claude_9aa375dd",
+      "source": "claude",
+      "project_group": "chitako-drable",
+      "total_records": 2739,
+      "assistant_turns": 558,
+      "user_message_count": 9,
+      "tool_calls_total": 273,
+      "tool_calls_readonly": 21,
+      "tool_calls_meta_interactive": 4,
+      "tool_calls_non_readonly_actionable": 248,
+      "tool_counts_by_name": {
+        "Bash": 226,
+        "Read": 20,
+        "TaskStop": 4,
+        "ToolSearch": 1,
+        "Write": 22
+      },
+      "final_view_chars": 67572,
+      "approx_final_view_tokens": 22524,
+      "checkpoint_view_chars": {
+        "min": 1689,
+        "median": 33108,
+        "max": 67572,
+        "approx_max_tokens": 22524
+      }
+    },
+    {
+      "anon_id": "claude_e9d5cb5c",
+      "source": "claude",
+      "project_group": "chitako-drable",
+      "total_records": 8,
+      "assistant_turns": 0,
+      "user_message_count": 1,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 523,
+      "approx_final_view_tokens": 174,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "claude_b2312f21",
+      "source": "claude",
+      "project_group": "chitako-drable",
+      "total_records": 11,
+      "assistant_turns": 0,
+      "user_message_count": 2,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 658,
+      "approx_final_view_tokens": 219,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "claude_6d82a0b0",
+      "source": "claude",
+      "project_group": "chitako-drive",
+      "total_records": 2521,
+      "assistant_turns": 625,
+      "user_message_count": 3,
+      "tool_calls_total": 264,
+      "tool_calls_readonly": 32,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 232,
+      "tool_counts_by_name": {
+        "Bash": 186,
+        "Edit": 1,
+        "Read": 30,
+        "ToolSearch": 1,
+        "WebSearch": 1,
+        "Write": 45
+      },
+      "final_view_chars": 57355,
+      "approx_final_view_tokens": 19118,
+      "checkpoint_view_chars": {
+        "min": 1289,
+        "median": 24572,
+        "max": 57941,
+        "approx_max_tokens": 19314
+      }
+    },
+    {
+      "anon_id": "claude_35437ff0",
+      "source": "claude",
+      "project_group": "chitako-drive",
+      "total_records": 104,
+      "assistant_turns": 19,
+      "user_message_count": 2,
+      "tool_calls_total": 8,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 8,
+      "tool_counts_by_name": {
+        "Bash": 8
+      },
+      "final_view_chars": 2605,
+      "approx_final_view_tokens": 868,
+      "checkpoint_view_chars": {
+        "min": 1411,
+        "median": 1966,
+        "max": 2605,
+        "approx_max_tokens": 868
+      }
+    },
+    {
+      "anon_id": "claude_c81d38e6",
+      "source": "claude",
+      "project_group": "home-sit",
+      "total_records": 290,
+      "assistant_turns": 72,
+      "user_message_count": 9,
+      "tool_calls_total": 28,
+      "tool_calls_readonly": 1,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 27,
+      "tool_counts_by_name": {
+        "Bash": 27,
+        "Read": 1
+      },
+      "final_view_chars": 9180,
+      "approx_final_view_tokens": 3060,
+      "checkpoint_view_chars": {
+        "min": 827,
+        "median": 5036,
+        "max": 9180,
+        "approx_max_tokens": 3060
+      }
+    },
+    {
+      "anon_id": "claude_a7f6523d",
+      "source": "claude",
+      "project_group": "home-sit",
+      "total_records": 143,
+      "assistant_turns": 24,
+      "user_message_count": 6,
+      "tool_calls_total": 8,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 8,
+      "tool_counts_by_name": {
+        "Bash": 8
+      },
+      "final_view_chars": 3133,
+      "approx_final_view_tokens": 1044,
+      "checkpoint_view_chars": {
+        "min": 766,
+        "median": 1854,
+        "max": 3133,
+        "approx_max_tokens": 1044
+      }
+    },
+    {
+      "anon_id": "claude_f712f02d",
+      "source": "claude",
+      "project_group": "home-sit",
+      "total_records": 10,
+      "assistant_turns": 0,
+      "user_message_count": 1,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 518,
+      "approx_final_view_tokens": 173,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "claude_c5cce1b5",
+      "source": "claude",
+      "project_group": "home-sit",
+      "total_records": 30,
+      "assistant_turns": 0,
+      "user_message_count": 3,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 590,
+      "approx_final_view_tokens": 197,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "claude_b3c51f25",
+      "source": "claude",
+      "project_group": "home-sit",
+      "total_records": 51,
+      "assistant_turns": 5,
+      "user_message_count": 1,
+      "tool_calls_total": 2,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 2,
+      "tool_counts_by_name": {
+        "Bash": 2
+      },
+      "final_view_chars": 1021,
+      "approx_final_view_tokens": 340,
+      "checkpoint_view_chars": {
+        "min": 782,
+        "median": 902,
+        "max": 1021,
+        "approx_max_tokens": 340
+      }
+    },
+    {
+      "anon_id": "claude_a978889e",
+      "source": "claude",
+      "project_group": "home-sit",
+      "total_records": 288,
+      "assistant_turns": 65,
+      "user_message_count": 8,
+      "tool_calls_total": 25,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 1,
+      "tool_calls_non_readonly_actionable": 24,
+      "tool_counts_by_name": {
+        "Agent": 2,
+        "AskUserQuestion": 1,
+        "Bash": 22
+      },
+      "final_view_chars": 6360,
+      "approx_final_view_tokens": 2120,
+      "checkpoint_view_chars": {
+        "min": 861,
+        "median": 3916,
+        "max": 6360,
+        "approx_max_tokens": 2120
+      }
+    },
+    {
+      "anon_id": "pi_e8c78b4d",
+      "source": "pi",
+      "project_group": "pi-home-sit",
+      "total_records": 9,
+      "assistant_turns": 2,
+      "user_message_count": 2,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 406,
+      "approx_final_view_tokens": 135,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "pi_b261c958",
+      "source": "pi",
+      "project_group": "pi-home-sit",
+      "total_records": 6,
+      "assistant_turns": 1,
+      "user_message_count": 1,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 393,
+      "approx_final_view_tokens": 131,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "pi_dd622eeb",
+      "source": "pi",
+      "project_group": "pi-loopedslm",
+      "total_records": 15,
+      "assistant_turns": 5,
+      "user_message_count": 1,
+      "tool_calls_total": 5,
+      "tool_calls_readonly": 1,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 4,
+      "tool_counts_by_name": {
+        "bash": 4,
+        "read": 1
+      },
+      "final_view_chars": 780,
+      "approx_final_view_tokens": 260,
+      "checkpoint_view_chars": {
+        "min": 553,
+        "median": 724,
+        "max": 780,
+        "approx_max_tokens": 260
+      }
+    },
+    {
+      "anon_id": "pi_37d6262b",
+      "source": "pi",
+      "project_group": "pi-loopedslm",
+      "total_records": 43,
+      "assistant_turns": 19,
+      "user_message_count": 1,
+      "tool_calls_total": 18,
+      "tool_calls_readonly": 1,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 17,
+      "tool_counts_by_name": {
+        "bash": 16,
+        "edit": 1,
+        "read": 1
+      },
+      "final_view_chars": 4208,
+      "approx_final_view_tokens": 1403,
+      "checkpoint_view_chars": {
+        "min": 584,
+        "median": 2600,
+        "max": 4717,
+        "approx_max_tokens": 1572
+      }
+    },
+    {
+      "anon_id": "pi_0094bf14",
+      "source": "pi",
+      "project_group": "pi-loopedslm",
+      "total_records": 300,
+      "assistant_turns": 138,
+      "user_message_count": 2,
+      "tool_calls_total": 150,
+      "tool_calls_readonly": 9,
+      "tool_calls_meta_interactive": 2,
+      "tool_calls_non_readonly_actionable": 139,
+      "tool_counts_by_name": {
+        "ask_user_question": 2,
+        "bash": 124,
+        "edit": 11,
+        "fetch_content": 3,
+        "fffind": 1,
+        "ffgrep": 1,
+        "read": 2,
+        "source_check": 1,
+        "web_search": 1,
+        "write": 4
+      },
+      "final_view_chars": 21795,
+      "approx_final_view_tokens": 7265,
+      "checkpoint_view_chars": {
+        "min": 484,
+        "median": 12473,
+        "max": 21795,
+        "approx_max_tokens": 7265
+      }
+    },
+    {
+      "anon_id": "pi_6fe6f496",
+      "source": "pi",
+      "project_group": "pi-loopedslm",
+      "total_records": 10,
+      "assistant_turns": 2,
+      "user_message_count": 2,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 1105,
+      "approx_final_view_tokens": 368,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "pi_d33db6de",
+      "source": "pi",
+      "project_group": "pi-loopedslm",
+      "total_records": 8,
+      "assistant_turns": 1,
+      "user_message_count": 1,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 1088,
+      "approx_final_view_tokens": 363,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "pi_b95b4213",
+      "source": "pi",
+      "project_group": "pi-loopedslm",
+      "total_records": 9,
+      "assistant_turns": 1,
+      "user_message_count": 1,
+      "tool_calls_total": 0,
+      "tool_calls_readonly": 0,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 0,
+      "tool_counts_by_name": {},
+      "final_view_chars": 1088,
+      "approx_final_view_tokens": 363,
+      "checkpoint_view_chars": null
+    },
+    {
+      "anon_id": "omp_0b26035b",
+      "source": "omp",
+      "project_group": "omp-tmp",
+      "total_records": 449,
+      "assistant_turns": 140,
+      "user_message_count": 8,
+      "tool_calls_total": 142,
+      "tool_calls_readonly": 24,
+      "tool_calls_meta_interactive": 0,
+      "tool_calls_non_readonly_actionable": 118,
+      "tool_counts_by_name": {
+        "bash": 107,
+        "eval": 11,
+        "read": 19,
+        "wait": 4,
+        "web_search": 1
+      },
+      "final_view_chars": 27247,
+      "approx_final_view_tokens": 9082,
+      "checkpoint_view_chars": {
+        "min": 487,
+        "median": 11352,
+        "max": 27263,
+        "approx_max_tokens": 9088
+      }
+    }
+  ]
+}

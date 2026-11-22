@@ -1,0 +1,29 @@
+[project]
+name = "decider-0.8b-automode"
+version = "0.1.0"
+description = "Gradient-free weight-space editing research for Qwen3.5-0.8B single-model auto-mode permission decider"
+requires-python = ">=3.12"
+dependencies = [
+    "torch",
+    "transformers>=5.2.0",
+    "accelerate",
+    "safetensors",
+    "huggingface_hub",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "matplotlib",
+    "httpx",
+    "pytest",
+    "pillow",
+    "sentencepiece",
+    "einops",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.gguf
+checkpoints/
+data/raw_private/
+data/raw_sessions/
+data/local_private/
+docs/references/
+*.jsonl.private
+*.pt
+*.safetensors
+.pytest_cache/
+*.egg-info/
+dist/
+build/
