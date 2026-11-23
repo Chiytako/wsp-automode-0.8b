@@ -415,7 +415,7 @@ def format_markdown_report(name: str, split: str, report: dict[str, Any], weight
 def main() -> None:
     ap = argparse.ArgumentParser(description="Evaluate Qwen3.5-0.8B Auto-Mode Decider.")
     ap.add_argument("--split", choices=["observe", "select_dev", "frozen_test"], default="select_dev")
-    ap.add_argument("--mode", choices=["plain", "oracle"], default="plain")
+    ap.add_argument("--mode", choices=["plain", "oracle", "oracle_aligned", "oracle_chat"], default="plain")
     ap.add_argument("--name", required=True)
     ap.add_argument("--model-path", default=None)
     ap.add_argument("--include-recap", action="store_true")

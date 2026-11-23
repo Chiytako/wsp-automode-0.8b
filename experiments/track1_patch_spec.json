@@ -1,0 +1,118 @@
+{
+  "metadata": {
+    "track": "track1",
+    "teacher_mode": "oracle_chat",
+    "run_name": "track1_best_dev"
+  },
+  "extra_summary": {
+    "weight_diff": {
+      "total_params": 752393024,
+      "modified_params": 12283,
+      "pct_modified_params": 0.001633,
+      "modified_tensor_count": 3,
+      "total_delta_frobenius_norm": 8.010948,
+      "modified_tensors": [
+        {
+          "name": "model.layers.15.mlp.gate_proj.weight",
+          "shape": [
+            3584,
+            1024
+          ],
+          "numel": 3670016,
+          "modified_elements": 4095,
+          "pct_elements": 0.1116,
+          "delta_frobenius_norm": 6.869941,
+          "max_abs_delta": 0.478851
+        },
+        {
+          "name": "model.layers.15.mlp.up_proj.weight",
+          "shape": [
+            3584,
+            1024
+          ],
+          "numel": 3670016,
+          "modified_elements": 4095,
+          "pct_elements": 0.1116,
+          "delta_frobenius_norm": 4.059375,
+          "max_abs_delta": 0.382996
+        },
+        {
+          "name": "model.layers.15.mlp.down_proj.weight",
+          "shape": [
+            1024,
+            3584
+          ],
+          "numel": 3670016,
+          "modified_elements": 4093,
+          "pct_elements": 0.1115,
+          "delta_frobenius_norm": 0.707585,
+          "max_abs_delta": 0.040771
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "step_id": "step1b_swiglu_order_gate_L15",
+      "category": "step1b_swiglu_gate",
+      "method": "closed_form_swiglu_4neuron",
+      "target_layers": [
+        15
+      ],
+      "rank": 4,
+      "alpha": 0.814134,
+      "hypothesis": "Write gain-calibrated order-conditioned SwiGLU joint contrastive readout into 4 quietest neurons [3447, 291, 1066, 917] of L15 MLP (gain=2.211, target_std=1.8, target_bias=0.85/1.49).",
+      "frobenius_norm": 8.011234,
+      "modified_elements": 12288,
+      "tensors": {
+        "model.layers.15.mlp.gate_proj.weight": [
+          3584,
+          1024
+        ],
+        "model.layers.15.mlp.up_proj.weight": [
+          3584,
+          1024
+        ],
+        "model.layers.15.mlp.down_proj.weight": [
+          1024,
+          3584
+        ]
+      },
+      "metadata": {
+        "quiet_neurons": [
+          3447,
+          291,
+          1066,
+          917
+        ],
+        "layer_gain": 2.2109,
+        "target_logit_std": 1.8,
+        "target_bias_shift": 0.85,
+        "target_bias_shift_rev": 1.4875,
+        "alpha_score": 0.8141,
+        "alpha_bias": 0.3845,
+        "alpha_bias_rev": 0.6728,
+        "w_c5": 2.5,
+        "w_pair": 1.5,
+        "gate_norm_mean_silu_target": 3.7544,
+        "gate_norm_max_silu_nontarget": -0.0005,
+        "gate_rev_mean_silu_target": 3.7544,
+        "gate_rev_max_silu_nontarget": -0.0003,
+        "observe_cv_norm": {
+          "lam": 30.0,
+          "rc_cv_auc": 0.9144,
+          "c5_cv_auc": 0.6875,
+          "w_c5": 2.5,
+          "w_pair": 1.5
+        },
+        "observe_cv_rev": {
+          "lam": 30.0,
+          "rc_cv_auc": 0.9512,
+          "c5_cv_auc": 0.6953,
+          "w_c5": 2.5,
+          "w_pair": 1.5
+        }
+      }
+    }
+  ]
+}

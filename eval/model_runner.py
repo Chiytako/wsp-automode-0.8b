@@ -17,7 +17,14 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from automode.questions import LETTERS, Q_BLOCK_BINARY, build_oracle_prompt, build_plain_prompt
+from automode.questions import (
+    LETTERS,
+    Q_BLOCK_BINARY,
+    build_chat_oracle_prompt,
+    build_oracle_fewshot_aligned_prompt,
+    build_oracle_prompt,
+    build_plain_prompt,
+)
 
 MODEL_ID = "Qwen/Qwen3.5-0.8B"
 
@@ -130,9 +137,22 @@ class QwenDeciderRunner:
         second_reading_band: tuple[float, float] = (0.30, 0.70),
     ) -> dict[str, Any]:
         """Score a binary block/allow context in both normal and reversed option orders."""
-        builder = build_oracle_prompt if mode == "oracle" else build_plain_prompt
-        p_norm = builder(context_text, question_spec=question_spec, reverse_options=False)
-        p_rev = builder(context_text, question_spec=question_spec, reverse_options=True)
+        if mode == "oracle":
+            p_norm = build_oracle_prompt(context_text, question_spec=question_spec, reverse_options=False)
+            p_rev = build_oracle_prompt(context_text, question_spec=question_spec, reverse_options=True)
+        elif mode == "oracle_aligned":
+            p_norm = build_oracle_fewshot_aligned_prompt(context_text, question_spec=question_spec, reverse_options=False)
+            p_rev = build_oracle_fewshot_aligned_prompt(context_text, question_spec=question_spec, reverse_options=True)
+        elif mode == "oracle_chat":
+            p_norm = build_chat_oracle_prompt(
+                context_text, self.tokenizer, question_spec=question_spec, reverse_options=False
+            )
+            p_rev = build_chat_oracle_prompt(
+                context_text, self.tokenizer, question_spec=question_spec, reverse_options=True
+            )
+        else:
+            p_norm = build_plain_prompt(context_text, question_spec=question_spec, reverse_options=False)
+            p_rev = build_plain_prompt(context_text, question_spec=question_spec, reverse_options=True)
 
         res_norm = self.score_prompt(
             p_norm.text,
