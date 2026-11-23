@@ -14,3 +14,4 @@ docs/references/
 *.egg-info/
 dist/
 build/
+third_party/

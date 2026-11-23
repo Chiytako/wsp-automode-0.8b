@@ -27,7 +27,10 @@
   - 3 軌跡比較 ([`experiments/track2_trajectories_summary.md`](experiments/track2_trajectories_summary.md)): 3 軸回帰ゲートが `P3` 劣化案（`1.0 -> 0.75`: `traj1_iter1`, `traj2_iter2`）を自動 REVERT し、DeltaNet `A_log`/`dt_bias` 減衰手術（`gain=-0.00305`）も誠実に REVERT。勝者はゼロからの独立軌跡 `traj3_from_scratch_multilayer`（`L15` ドメイン専門 ＋ `L22` 同意専門、`0.003264%` / `24,561` パラメータ / 6 テンソル、`select_dev` Proxy `+0.56208`）
   - LOO アブレーション ([`experiments/track2_loo_ablation.json`](experiments/track2_loo_ablation.json)): `L15` 削除で Proxy `-2.15962`、`L22` 削除で `-0.22161` となり、2 ステップとも必須を確認
   - [`eval/eval_frozen_once.py`](eval/eval_frozen_once.py) で `frozen_test`（200 件・初見プロジェクト群 `carla-ja` + `home-sit`）を SHA-256 検証の上 **1 回限り**解禁評価（[`experiments/frozen_test_comparison.md`](experiments/frozen_test_comparison.md)）：`Track 2 Final` は Proxy `-1.25390` (0a) / `-0.56906` (0c) → **`+0.22845`**（`real_cf` AUROC `0.8347` / SR `0.8391`、Recall `0.80` / FPR `0.35`、`consent_5p` Acc `0.7292`・`P2=0.375 / P3=0.875`・Flip `0.1667`、`decider_replay` Acc `0.50`）を達成（評価後の再調整ゼロ）
-- [ ] **Phase 4**：`Q8_0` GGUF 変換・`llama-server` 構築・`bf16` vs `Q8_0` パリティ検証・`second_reading` / 差し戻しループ実測
+- [x] **Phase 4**：`Q8_0` GGUF 変換・`llama-server` 構築・`bf16` vs `Q8_0` パリティ検証・`second_reading` / 差し戻しループ実測（2026-11-23）
+  - [`runtime/export_hf.py`](runtime/export_hf.py) で Track 2 勝者パッチを HF `bf16` モデルへ書き出し（全 488 テンソル中 6 テンソル変更、`24,562` 要素、`||ΔW||_F = 11.88819`、`model.visual.*` 無変更）
+  - [`runtime/convert_q8.sh`](runtime/convert_q8.sh) & [`runtime/launch_llama_server.sh`](runtime/launch_llama_server.sh) 実装（`llama.cpp` CUDA `sm_86` ビルド、`wsp-automode-0.8b-Q8_0.gguf` = `794.97 MiB < 1 GiB`、BOS なしトークナイザ完全一致 `exact_match = True`）
+  - [`runtime/client.py`](runtime/client.py) & [`runtime/parity_check.py`](runtime/parity_check.py)：PyTorch `bf16` vs `llama-server` `Q8_0`（`select_dev` 200 件）で `p_block MAE = 0.0549`（Pearson `r = 0.9695`）、全体決定一致率 **`96.0%`**（`bf16` GGUF 20 件診断 `0.01691` により純粋な 8bit 量子化分散であることを確認）；`Q8_0` 単独で `real_cf` AUROC `0.8431`（SR `0.8719`）、`consent_5p` Acc `0.7708`；1-pass レイテンシ P50 **`71.73 ms`** / E2E P50 **`88.77 ms`**；単体テスト [`tests/test_phase4_runtime.py`](tests/test_phase4_runtime.py) **18/18** 通過
 
 ---
 
@@ -41,7 +44,8 @@
 | **Track 0b** | 未編集 Oracle Prompt (Plain Context) | 0.00% | `select_dev` | 0.6016 | 0.0000 | 0.0000 | Acc 0.3333 (`1.00 / 0.00`) | 1.0000 | 0.5000 (recap ON: 0.5000) | 0.5333 / 0.1687 | 未実行 |
 | **Track 0c** | 未編集 Oracle Prompt (`oracle_chat` 上限) | 0.00% | `select_dev` | 0.6500 (`SR 0.7394`) | 0.9000 | 0.7250 | Acc 0.6250 (`0.375 / 0.875`) | 0.6125 (rc) / 0.6667 (c5) | 0.5833 (recap ON: 0.5000) | 0.5333 / 0.1687 | 未実行 |
 | **Track 1** | 校正済 SwiGLU 順序ゲート (`L15`・4 neuron) + Replay 強化 Null-Space (Gradient-Free) | 0.001633% (`12,283`) | `select_dev` | **0.8512 (`SR 0.8644`)** | **0.7000 (`SR 0.8000`)** | 0.2000 | Acc **0.7292** (`0.125 / 1.000`) | **0.1500** (rc) / **0.2708** (c5) | 0.5000 (recap ON: 0.5833) | **0.5500 / 0.1366** | 未実行 |
-| **Track 2** | 複数軌跡 WSP + 3 軸ゲート + LOO (`L15` Domain + `L22` Consent, Gradient-Free) | 0.003264% (`24,561`) | `select_dev` | **0.8731 (`SR 0.8753`)** | 0.6250 (`SR 0.7000`) | **0.1750** | Acc **0.7500** (`0.375 / 0.875`) | 0.2375 (rc) / **0.1042** (c5) | 0.5000 (recap ON: 0.5833) | 0.5333 / 0.1407 | 未実行 |
+| **Track 2** | 複数軌跡 WSP + 3 軸ゲート + LOO (`L15` Domain + `L22` Consent, Gradient-Free) | 0.003264% (`24,561`) | `select_dev` | **0.8731 (`SR 0.8753`)** | 0.6250 (`SR 0.7000`) | **0.1750** | Acc **0.7500** (`0.375 / 0.875`) | 0.2375 (rc) / **0.1042** (c5) | 0.5000 (recap ON: 0.5833) | 0.5333 / 0.1407 | MAE 0.0549 (bf16 GGUF 0.0169) / 96.0% 一致 / P50 71.73 ms |
+| **Track 2 (Q8_0 Runtime)** | `llama-server` `Q8_0` GGUF 単独評価 (`CUDA sm_86`) | 0.003264% (`794.97 MiB`) | `select_dev` | 0.8431 (`SR 0.8719`) | 0.6000 (`SR 0.6750`) | **0.1500** | Acc **0.7708** (`0.375 / 1.000`) | **0.2000** (rc) / **0.1042** (c5) | 0.5000 | 0.5333 / 0.1649 | 794.97 MiB / 96.0% 一致 / P50 71.73 ms |
 | **Track 0a (Frozen)** | 未編集 Zero-Shot (Plain Layout) | 0.00% | `frozen_test` | 0.6587 (`SR 0.6353`) | 0.0250 (`SR 0.7500`) | 0.0000 | Acc 0.3958 (`0.875 / 0.125`) | 0.9875 (rc) / 0.8958 (c5) | 0.5833 (recap ON: 0.6667) | 0.5000 / 0.1989 | 未実行 |
 | **Track 0c (Frozen)** | 未編集 Oracle Prompt (`oracle_chat` 上限) | 0.00% | `frozen_test` | 0.6416 (`SR 0.6600`) | 1.0000 (`SR 0.9250`) | 0.9000 | Acc 0.5208 (`0.375 / 0.625`) | 0.2750 (rc) / 0.2292 (c5) | 0.5000 (recap ON: 0.5000) | 0.5000 / 0.1989 | 未実行 |
 | **Track 1 (Frozen)** | 校正済 SwiGLU 順序ゲート (`L15`, Gradient-Free) | 0.001633% (`12,283`) | `frozen_test` | 0.8213 (`SR 0.8241`) | **0.8500** (`SR 0.8250`) | 0.4750 | Acc 0.6875 (`0.125 / 0.875`) | **0.2000** (rc) / 0.2708 (c5) | 0.5833 (recap ON: 0.5833) | 0.5000 / 0.2138 | 未実行 |
@@ -76,3 +80,5 @@
 - [`experiments/frozen_track0c_oracle_chat.md`](experiments/frozen_track0c_oracle_chat.md) — `frozen_test` Track 0c (`oracle_chat`) 個別レポート
 - [`experiments/frozen_track1_best.md`](experiments/frozen_track1_best.md) — `frozen_test` Track 1 個別レポート
 - [`experiments/frozen_track2_best.md`](experiments/frozen_track2_best.md) — `frozen_test` Track 2 最終勝者個別レポート
+- [`experiments/phase4_parity_report.md`](experiments/phase4_parity_report.md) — Phase 4 `Q8_0` GGUF パリティ・`bf16` GGUF 比較・レイテンシ・E2E TurnGuard レポート
+- [`experiments/phase4_parity_report.json`](experiments/phase4_parity_report.json) — Phase 4 パリティ・単独評価・E2E スモーク計測 JSON
