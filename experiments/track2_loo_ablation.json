@@ -1,0 +1,27 @@
+{
+  "final_step_ids": [
+    "traj3_iter1_domain_spec_L15",
+    "traj3_iter2_consent_spec_L22"
+  ],
+  "final_proxy": 0.56208,
+  "rounds": [
+    {
+      "n_steps": 2,
+      "full_proxy": 0.56208,
+      "trials": [
+        {
+          "dropped_step": "traj3_iter1_domain_spec_L15",
+          "proxy_without": -1.59754,
+          "delta_proxy": -2.15962,
+          "replay_acc_without": 0.55
+        },
+        {
+          "dropped_step": "traj3_iter2_consent_spec_L22",
+          "proxy_without": 0.34047,
+          "delta_proxy": -0.22161,
+          "replay_acc_without": 0.5333
+        }
+      ]
+    }
+  ]
+}

@@ -40,23 +40,47 @@ class WeightPatch:
     deltas: dict[str, torch.Tensor]  # param_name -> CPU float32 delta tensor
     metadata: dict[str, Any] = field(default_factory=dict)
     scale_keys: list[str] | None = None  # if set, scale() & orth-control vary only these keys (at scale=0, all zero)
+    base_zero_deltas: dict[str, torch.Tensor] | None = None  # unscaled baseline-zeroing offsets applied whenever scale != 0
+
+    def net_deltas(self) -> dict[str, torch.Tensor]:
+        keys = sorted(set(self.deltas.keys()) | (set(self.base_zero_deltas.keys()) if self.base_zero_deltas else set()))
+        out: dict[str, torch.Tensor] = {}
+        for k in keys:
+            val: torch.Tensor | None = None
+            if self.base_zero_deltas and k in self.base_zero_deltas:
+                val = self.base_zero_deltas[k].detach().float().cpu().clone()
+            if k in self.deltas:
+                d = self.deltas[k].detach().float().cpu()
+                val = d.clone() if val is None else (val + d)
+            if val is not None:
+                out[k] = val
+        return out
 
     def frobenius_norm(self) -> float:
-        sq = sum(float(torch.sum(d.float() ** 2).item()) for d in self.deltas.values())
+        sq = sum(float(torch.sum(d.float() ** 2).item()) for d in self.net_deltas().values())
         return math.sqrt(sq)
 
     def modified_elements(self, atol: float = 1e-8) -> int:
-        return sum(int((d.abs() > atol).sum().item()) for d in self.deltas.values())
+        return sum(int((d.abs() > atol).sum().item()) for d in self.net_deltas().values())
 
     def scaled(self, factor: float) -> "WeightPatch":
-        if factor == 0.0 or not self.scale_keys:
-            new_deltas = {k: v.float().cpu() * float(factor) for k, v in self.deltas.items()}
+        if factor == 0.0:
+            new_deltas = {k: torch.zeros_like(v.float().cpu()) for k, v in self.deltas.items()}
+            new_base_zero = None
         else:
-            s_set = set(self.scale_keys)
-            new_deltas = {
-                k: (v.float().cpu() * float(factor) if k in s_set else v.float().cpu().clone())
-                for k, v in self.deltas.items()
-            }
+            if not self.scale_keys:
+                new_deltas = {k: v.float().cpu() * float(factor) for k, v in self.deltas.items()}
+            else:
+                s_set = set(self.scale_keys)
+                new_deltas = {
+                    k: (v.float().cpu() * float(factor) if k in s_set else v.float().cpu().clone())
+                    for k, v in self.deltas.items()
+                }
+            new_base_zero = (
+                {k: v.float().cpu().clone() for k, v in self.base_zero_deltas.items()}
+                if self.base_zero_deltas is not None
+                else None
+            )
         return WeightPatch(
             step_id=self.step_id,
             category=self.category,
@@ -68,6 +92,7 @@ class WeightPatch:
             deltas=new_deltas,
             metadata=dict(self.metadata),
             scale_keys=list(self.scale_keys) if self.scale_keys is not None else None,
+            base_zero_deltas=new_base_zero,
         )
 
 
@@ -97,11 +122,17 @@ class CausalCheckResult:
 
 
 def apply_patch(model: torch.nn.Module, patch: WeightPatch, scale: float = 1.0) -> None:
-    """Add `scale * patch.deltas` to `model` parameters in-place under torch.no_grad()."""
+    """Add `base_zero_deltas + scale * patch.deltas` to `model` parameters under torch.no_grad()."""
     if scale == 0.0:
         return
     param_map = dict(model.named_parameters())
     with torch.no_grad():
+        if patch.base_zero_deltas:
+            for name, bdelta in patch.base_zero_deltas.items():
+                if name not in param_map:
+                    raise KeyError(f"Parameter {name!r} not found on model")
+                p = param_map[name]
+                p.add_(bdelta.to(device=p.device, dtype=p.dtype), alpha=1.0)
         for name, delta in patch.deltas.items():
             if name not in param_map:
                 raise KeyError(f"Parameter {name!r} not found on model")
@@ -133,14 +164,15 @@ def save_patch_bundle(
     pt_deltas_path: Path,
     extra_summary: dict[str, Any] | None = None,
 ) -> None:
-    """Persist human-readable spec JSON (committed) and tensor deltas .pt (git-ignored)."""
+    """Persist human-readable spec JSON (committed) and net tensor deltas .pt (git-ignored)."""
     json_spec_path.parent.mkdir(parents=True, exist_ok=True)
     pt_deltas_path.parent.mkdir(parents=True, exist_ok=True)
 
-    spec = {
-        "metadata": bundle.metadata,
-        "extra_summary": extra_summary or {},
-        "steps": [
+    steps_spec = []
+    patches_payload = []
+    for p in bundle.patches:
+        net = p.net_deltas()
+        steps_spec.append(
             {
                 "step_id": p.step_id,
                 "category": p.category,
@@ -151,31 +183,32 @@ def save_patch_bundle(
                 "hypothesis": p.hypothesis,
                 "frobenius_norm": round(p.frobenius_norm(), 6),
                 "modified_elements": p.modified_elements(),
-                "tensors": {k: list(v.shape) for k, v in p.deltas.items()},
+                "tensors": {k: list(v.shape) for k, v in net.items()},
                 "metadata": p.metadata,
             }
-            for p in bundle.patches
-        ],
+        )
+        patches_payload.append(
+            {
+                "step_id": p.step_id,
+                "category": p.category,
+                "method": p.method,
+                "target_layers": p.target_layers,
+                "rank": p.rank,
+                "alpha": p.alpha,
+                "hypothesis": p.hypothesis,
+                "metadata": p.metadata,
+                "deltas": {k: v.detach().float().cpu() for k, v in net.items()},
+            }
+        )
+
+    spec = {
+        "metadata": bundle.metadata,
+        "extra_summary": extra_summary or {},
+        "steps": steps_spec,
     }
     json_spec_path.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     torch.save(
-        {
-            "metadata": bundle.metadata,
-            "patches": [
-                {
-                    "step_id": p.step_id,
-                    "category": p.category,
-                    "method": p.method,
-                    "target_layers": p.target_layers,
-                    "rank": p.rank,
-                    "alpha": p.alpha,
-                    "hypothesis": p.hypothesis,
-                    "metadata": p.metadata,
-                    "deltas": {k: v.detach().float().cpu() for k, v in p.deltas.items()},
-                }
-                for p in bundle.patches
-            ],
-        },
+        {"metadata": bundle.metadata, "patches": patches_payload},
         pt_deltas_path,
     )
 
@@ -328,7 +361,12 @@ def quick_eval_dev(
             "mismatch_block_rate": round(
                 sum(1 for x in blk_sub if x["pred_normal"] == "block") / max(1, len(blk_sub)), 4
             ),
+            "margin_separation": l_bin["margin_separation"],
+            "bce": l_bin["bce"],
             "order_flip_rate": round(sum(1 for x in l_recs if x["flipped"]) / max(1, len(l_recs)), 4),
+            "mean_abs_order_diff": round(
+                float(np.mean([x["order_abs_margin_diff"] for x in l_recs])), 4
+            ),
         }
 
     rep_rows = by_subset.get("decider_replay", [])
@@ -378,6 +416,12 @@ def extract_metric(report: dict[str, Any], metric_key: str) -> float:
     if metric_key == "domain_focus":
         rc = report["real_cf"]
         return float(rc["margin_separation"] - 2.0 * rc["bce"])
+    if metric_key == "long50t_focus":
+        lg = report["long_50t"]
+        return float(lg["margin_separation"] - 1.5 * lg["bce"] - 0.15 * lg["mean_abs_order_diff"])
+    if metric_key == "proxy_plus_long":
+        lg = report["long_50t"]
+        return float(report["proxy"]["proxy_score"] + 0.5 * math.tanh(lg["margin_separation"] / 4.0) - 0.25 * lg["bce"])
     cur: Any = report
     for part in metric_key.split("."):
         cur = cur[part]
@@ -441,6 +485,12 @@ def make_orthogonal_random_patch(
         rand_deltas[k] = r_full[offset : offset + n].reshape(patch.deltas[k].shape).clone()
         offset += n
 
+    base_zero_copy = (
+        {k: v.float().cpu().clone() for k, v in patch.base_zero_deltas.items()}
+        if patch.base_zero_deltas is not None
+        else None
+    )
+
     return WeightPatch(
         step_id=f"{patch.step_id}_orth_rand_{seed}",
         category="orthogonal_random_control",
@@ -450,6 +500,8 @@ def make_orthogonal_random_patch(
         alpha=patch.alpha,
         hypothesis="Null control",
         deltas=rand_deltas,
+        scale_keys=list(patch.scale_keys) if patch.scale_keys is not None else None,
+        base_zero_deltas=base_zero_copy,
     )
 
 

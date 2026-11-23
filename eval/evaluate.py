@@ -26,7 +26,7 @@ from sklearn.metrics import roc_auc_score
 
 from automode.questions import Q_BLOCK_BINARY, build_decider_prompt
 from automode.view import render_view
-from eval.model_runner import QwenDeciderRunner, compute_weight_diff_stats
+from eval.model_runner import QwenDeciderRunner, capture_cpu_state_dict, compute_weight_diff_stats
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "data" / "manifest.json"
@@ -418,6 +418,7 @@ def main() -> None:
     ap.add_argument("--mode", choices=["plain", "oracle", "oracle_aligned", "oracle_chat"], default="plain")
     ap.add_argument("--name", required=True)
     ap.add_argument("--model-path", default=None)
+    ap.add_argument("--patch-deltas", default=None)
     ap.add_argument("--include-recap", action="store_true")
     ap.add_argument("--no-recap-ablation", action="store_true")
     ap.add_argument("--unlock-frozen-test", action="store_true")
@@ -425,13 +426,6 @@ def main() -> None:
 
     rows = load_split_rows(args.split, unlock_frozen_test=args.unlock_frozen_test)
     runner = QwenDeciderRunner(model_path=args.model_path)
-    report = evaluate_runner(
-        runner,
-        rows,
-        mode=args.mode,
-        include_recap=args.include_recap,
-        eval_recap_ablation=not args.no_recap_ablation,
-    )
     weight_diff = {
         "total_params": sum(p.numel() for p in runner.model.parameters()),
         "modified_params": 0,
@@ -439,11 +433,27 @@ def main() -> None:
         "modified_tensor_count": 0,
         "total_delta_frobenius_norm": 0.0,
     }
-    if args.model_path is not None:
+    if args.patch_deltas is not None:
+        from weight_edit.causal_check import apply_bundle, load_patch_bundle
+
+        base_cpu = capture_cpu_state_dict(runner.model)
+        bundle = load_patch_bundle(Path(args.patch_deltas))
+        apply_bundle(runner.model, base_cpu, bundle.patches)
+        weight_diff = compute_weight_diff_stats(runner.model, base_cpu)
+        del base_cpu
+    elif args.model_path is not None:
         base_runner = QwenDeciderRunner(model_path=None, device="cpu")
         base_cpu = {k: v.detach().cpu() for k, v in base_runner.model.named_parameters()}
         weight_diff = compute_weight_diff_stats(runner.model, base_cpu)
         del base_runner
+
+    report = evaluate_runner(
+        runner,
+        rows,
+        mode=args.mode,
+        include_recap=args.include_recap,
+        eval_recap_ablation=not args.no_recap_ablation,
+    )
 
     payload = {"name": args.name, "split": args.split, "weight_diff": weight_diff, **report}
     EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)

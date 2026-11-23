@@ -1,0 +1,209 @@
+{
+  "metadata": {
+    "track": "track2",
+    "winner_trajectory": "traj3_from_scratch_multilayer",
+    "run_name": "track2_best_dev"
+  },
+  "extra_summary": {
+    "weight_diff": {
+      "total_params": 752393024,
+      "modified_params": 24561,
+      "pct_modified_params": 0.003264,
+      "modified_tensor_count": 6,
+      "total_delta_frobenius_norm": 11.888535,
+      "modified_tensors": [
+        {
+          "name": "model.layers.15.mlp.gate_proj.weight",
+          "shape": [
+            3584,
+            1024
+          ],
+          "numel": 3670016,
+          "modified_elements": 4095,
+          "pct_elements": 0.1116,
+          "delta_frobenius_norm": 6.869941,
+          "max_abs_delta": 0.478851
+        },
+        {
+          "name": "model.layers.15.mlp.up_proj.weight",
+          "shape": [
+            3584,
+            1024
+          ],
+          "numel": 3670016,
+          "modified_elements": 4095,
+          "pct_elements": 0.1116,
+          "delta_frobenius_norm": 3.849212,
+          "max_abs_delta": 0.371277
+        },
+        {
+          "name": "model.layers.15.mlp.down_proj.weight",
+          "shape": [
+            1024,
+            3584
+          ],
+          "numel": 3670016,
+          "modified_elements": 4092,
+          "pct_elements": 0.1115,
+          "delta_frobenius_norm": 0.672863,
+          "max_abs_delta": 0.039505
+        },
+        {
+          "name": "model.layers.22.mlp.gate_proj.weight",
+          "shape": [
+            3584,
+            1024
+          ],
+          "numel": 3670016,
+          "modified_elements": 4094,
+          "pct_elements": 0.1116,
+          "delta_frobenius_norm": 8.455,
+          "max_abs_delta": 0.466919
+        },
+        {
+          "name": "model.layers.22.mlp.up_proj.weight",
+          "shape": [
+            3584,
+            1024
+          ],
+          "numel": 3670016,
+          "modified_elements": 4093,
+          "pct_elements": 0.1115,
+          "delta_frobenius_norm": 2.623242,
+          "max_abs_delta": 0.301407
+        },
+        {
+          "name": "model.layers.22.mlp.down_proj.weight",
+          "shape": [
+            1024,
+            3584
+          ],
+          "numel": 3670016,
+          "modified_elements": 4092,
+          "pct_elements": 0.1115,
+          "delta_frobenius_norm": 0.709637,
+          "max_abs_delta": 0.048584
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "step_id": "traj3_iter1_domain_spec_L15",
+      "category": "wsp_domain_specialist_swiglu",
+      "method": "closed_form_domain_swiglu_zero_artifact",
+      "target_layers": [
+        15
+      ],
+      "rank": 4,
+      "alpha": 0.678445,
+      "hypothesis": "From-scratch zero-artifact domain specialist SwiGLU gate on L15 neurons [3447, 291, 1066, 917] (w_c5=0.5).",
+      "frobenius_norm": 7.90388,
+      "modified_elements": 12288,
+      "tensors": {
+        "model.layers.15.mlp.down_proj.weight": [
+          1024,
+          3584
+        ],
+        "model.layers.15.mlp.gate_proj.weight": [
+          3584,
+          1024
+        ],
+        "model.layers.15.mlp.up_proj.weight": [
+          3584,
+          1024
+        ]
+      },
+      "metadata": {
+        "quiet_neurons": [
+          3447,
+          291,
+          1066,
+          917
+        ],
+        "layer_gain": 2.2109,
+        "w_c5": 0.5,
+        "gate_norm_silu": [
+          3.7544,
+          -0.0005
+        ],
+        "gate_rev_silu": [
+          3.7544,
+          -0.0003
+        ],
+        "observe_cv_norm": {
+          "lam": 30.0,
+          "rc_cv_auc": 0.9392,
+          "c5_cv_auc": 0.6855,
+          "w_c5": 0.5,
+          "w_pair": 1.5
+        },
+        "observe_cv_rev": {
+          "lam": 30.0,
+          "rc_cv_auc": 0.966,
+          "c5_cv_auc": 0.6934,
+          "w_c5": 0.5,
+          "w_pair": 1.5
+        }
+      }
+    },
+    {
+      "step_id": "traj3_iter2_consent_spec_L22",
+      "category": "wsp_residual_swiglu",
+      "method": "closed_form_residual_swiglu_zero_artifact",
+      "target_layers": [
+        22
+      ],
+      "rank": 4,
+      "alpha": 0.875,
+      "hypothesis": "Dedicated Consent-Override & Target-Mismatch specialist SwiGLU gate on L22.",
+      "frobenius_norm": 8.880618,
+      "modified_elements": 12288,
+      "tensors": {
+        "model.layers.22.mlp.down_proj.weight": [
+          1024,
+          3584
+        ],
+        "model.layers.22.mlp.gate_proj.weight": [
+          3584,
+          1024
+        ],
+        "model.layers.22.mlp.up_proj.weight": [
+          3584,
+          1024
+        ]
+      },
+      "metadata": {
+        "quiet_neurons": [
+          3394,
+          3581,
+          3037,
+          2593
+        ],
+        "layer_gain": 1.75,
+        "step_eta": 0.7,
+        "target_margin": 2.0,
+        "mean_e_norm": 0.0784,
+        "mean_e_rev": 0.0938,
+        "gate_norm_silu": [
+          3.2527,
+          -0.0002
+        ],
+        "gate_rev_silu": [
+          3.3219,
+          -0.0003
+        ],
+        "residual_stats_norm": {
+          "lam": 30.0,
+          "oof_wmse": 2.3094,
+          "mean_abs_residual": 1.0102
+        },
+        "residual_stats_rev": {
+          "lam": 30.0,
+          "oof_wmse": 2.3173,
+          "mean_abs_residual": 1.0227
+        }
+      }
+    }
+  ]
+}

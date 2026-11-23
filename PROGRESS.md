@@ -22,7 +22,11 @@
   - [`experiments/track0c_oracle_chat_dev.md`](experiments/track0c_oracle_chat_dev.md) で Chat-template Oracle 形式上限を検証（`real_cf` Second-Reading AUROC `0.7394`, `consent_5p` Acc `0.6250`, Proxy `-0.39148`）
   - [`weight_edit/causal_check.py`](weight_edit/causal_check.py) および [`weight_edit/context_edit.py`](weight_edit/context_edit.py) を実装（`.backward()` / `optimizer.step()` ゼロの完全 Gradient-Free、Replay 強化 AlphaEdit Null-Space、層別ロジット伝達ゲイン $G_\ell$ 解析校正、ファミリー内対照＋Joint Ridge、Layer Freezing スイープ $l_f \in \{8,4,3,2,1,0\}$、厳格な 3 点因果テスト＋Leave-One-Out アブレーション）、単体テスト [`tests/test_phase2_weight_edit.py`](tests/test_phase2_weight_edit.py) 含む全 **11/11** テスト通過
   - `step1b_swiglu_order_gate_L15` が厳格な 3 点因果サニティテストを全通過（Spearman=`1.0`, Sign-Reversal `-1.205 -> -5.895`, Orthogonal Random Max Gain `0.418 < 1.429`, Replay 維持）。わずか **`0.001633%`（12,283 パラメータ / 3 テンソル、`||ΔW||_F = 8.0109`）** の書き換えで `select_dev` Proxy Score が `-1.12343` → **`+0.40678`**（`real_cf` AUROC `0.5697 -> 0.8512` / SR `0.8644`, Recall@0.5 `0.05 -> 0.70` / SR `0.80`, FPR `0.20`, Order Flip `0.9625 -> 0.1500`；`consent_5p` Acc `0.3333 -> 0.7292`, `P3-P2` Margin Sep `+0.0781 -> +0.4688`；汎用 `decider_replay` Acc `0.5333 -> 0.5500`・ECE `0.1687 -> 0.1366`）へ大幅向上
-- [ ] **Phase 3**：**Track 2（複数軌跡 WSP 探索ループ ＋ 3 軸回帰ゲート ＋ Leave-One-Out アブレーション）** → 最後に 1 回のみ `frozen_test` 解禁
+- [x] **Phase 3**：**Track 2（複数軌跡 WSP 探索ループ ＋ 3 軸回帰ゲート ＋ Leave-One-Out アブレーション）** → 最後に 1 回のみ `frozen_test` 解禁（2026-11-23）
+  - [`weight_edit/causal_check.py`](weight_edit/causal_check.py) に `base_zero_deltas` ゼロアーティファクト線形スケーリングを実装（旧 SwiGLU 列残差による `scale=0.25` 歪みを解消）＋ [`weight_edit/wsp_runner.py`](weight_edit/wsp_runner.py) に閉形式残差ブースティング・Priority A Attention Null-Space・Priority C DeltaNet `A_log`/`dt_bias` 減衰手術・3 軸回帰ゲートを実装（[`tests/test_phase3_wsp.py`](tests/test_phase3_wsp.py) 含め単体テスト **15/15** 通過）
+  - 3 軌跡比較 ([`experiments/track2_trajectories_summary.md`](experiments/track2_trajectories_summary.md)): 3 軸回帰ゲートが `P3` 劣化案（`1.0 -> 0.75`: `traj1_iter1`, `traj2_iter2`）を自動 REVERT し、DeltaNet `A_log`/`dt_bias` 減衰手術（`gain=-0.00305`）も誠実に REVERT。勝者はゼロからの独立軌跡 `traj3_from_scratch_multilayer`（`L15` ドメイン専門 ＋ `L22` 同意専門、`0.003264%` / `24,561` パラメータ / 6 テンソル、`select_dev` Proxy `+0.56208`）
+  - LOO アブレーション ([`experiments/track2_loo_ablation.json`](experiments/track2_loo_ablation.json)): `L15` 削除で Proxy `-2.15962`、`L22` 削除で `-0.22161` となり、2 ステップとも必須を確認
+  - [`eval/eval_frozen_once.py`](eval/eval_frozen_once.py) で `frozen_test`（200 件・初見プロジェクト群 `carla-ja` + `home-sit`）を SHA-256 検証の上 **1 回限り**解禁評価（[`experiments/frozen_test_comparison.md`](experiments/frozen_test_comparison.md)）：`Track 2 Final` は Proxy `-1.25390` (0a) / `-0.56906` (0c) → **`+0.22845`**（`real_cf` AUROC `0.8347` / SR `0.8391`、Recall `0.80` / FPR `0.35`、`consent_5p` Acc `0.7292`・`P2=0.375 / P3=0.875`・Flip `0.1667`、`decider_replay` Acc `0.50`）を達成（評価後の再調整ゼロ）
 - [ ] **Phase 4**：`Q8_0` GGUF 変換・`llama-server` 構築・`bf16` vs `Q8_0` パリティ検証・`second_reading` / 差し戻しループ実測
 
 ---
@@ -37,8 +41,11 @@
 | **Track 0b** | 未編集 Oracle Prompt (Plain Context) | 0.00% | `select_dev` | 0.6016 | 0.0000 | 0.0000 | Acc 0.3333 (`1.00 / 0.00`) | 1.0000 | 0.5000 (recap ON: 0.5000) | 0.5333 / 0.1687 | 未実行 |
 | **Track 0c** | 未編集 Oracle Prompt (`oracle_chat` 上限) | 0.00% | `select_dev` | 0.6500 (`SR 0.7394`) | 0.9000 | 0.7250 | Acc 0.6250 (`0.375 / 0.875`) | 0.6125 (rc) / 0.6667 (c5) | 0.5833 (recap ON: 0.5000) | 0.5333 / 0.1687 | 未実行 |
 | **Track 1** | 校正済 SwiGLU 順序ゲート (`L15`・4 neuron) + Replay 強化 Null-Space (Gradient-Free) | 0.001633% (`12,283`) | `select_dev` | **0.8512 (`SR 0.8644`)** | **0.7000 (`SR 0.8000`)** | 0.2000 | Acc **0.7292** (`0.125 / 1.000`) | **0.1500** (rc) / **0.2708** (c5) | 0.5000 (recap ON: 0.5833) | **0.5500 / 0.1366** | 未実行 |
-| **Track 2** | 複数軌跡 WSP + 3 軸ゲート + LOO アブレーション (Gradient-Free) | 未実行 | `select_dev` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
-| **Track 2 (Final)** | Track 2 勝者パッチ（凍結評価 1 回限り） | 未実行 | `frozen_test` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
+| **Track 2** | 複数軌跡 WSP + 3 軸ゲート + LOO (`L15` Domain + `L22` Consent, Gradient-Free) | 0.003264% (`24,561`) | `select_dev` | **0.8731 (`SR 0.8753`)** | 0.6250 (`SR 0.7000`) | **0.1750** | Acc **0.7500** (`0.375 / 0.875`) | 0.2375 (rc) / **0.1042** (c5) | 0.5000 (recap ON: 0.5833) | 0.5333 / 0.1407 | 未実行 |
+| **Track 0a (Frozen)** | 未編集 Zero-Shot (Plain Layout) | 0.00% | `frozen_test` | 0.6587 (`SR 0.6353`) | 0.0250 (`SR 0.7500`) | 0.0000 | Acc 0.3958 (`0.875 / 0.125`) | 0.9875 (rc) / 0.8958 (c5) | 0.5833 (recap ON: 0.6667) | 0.5000 / 0.1989 | 未実行 |
+| **Track 0c (Frozen)** | 未編集 Oracle Prompt (`oracle_chat` 上限) | 0.00% | `frozen_test` | 0.6416 (`SR 0.6600`) | 1.0000 (`SR 0.9250`) | 0.9000 | Acc 0.5208 (`0.375 / 0.625`) | 0.2750 (rc) / 0.2292 (c5) | 0.5000 (recap ON: 0.5000) | 0.5000 / 0.1989 | 未実行 |
+| **Track 1 (Frozen)** | 校正済 SwiGLU 順序ゲート (`L15`, Gradient-Free) | 0.001633% (`12,283`) | `frozen_test` | 0.8213 (`SR 0.8241`) | **0.8500** (`SR 0.8250`) | 0.4750 | Acc 0.6875 (`0.125 / 0.875`) | **0.2000** (rc) / 0.2708 (c5) | 0.5833 (recap ON: 0.5833) | 0.5000 / 0.2138 | 未実行 |
+| **Track 2 (Final)** | Track 2 勝者パッチ (`L15`+`L22` SwiGLU, 凍結評価 1 回限り) | 0.003264% (`24,561`) | `frozen_test` | **0.8347 (`SR 0.8391`)** | 0.8000 (**`SR 0.8500`**) | **0.3500** | Acc **0.7292** (`0.375 / 0.875`) | 0.2375 (rc) / **0.1667** (c5) | 0.5833 (recap ON: 0.5833) | 0.5000 / 0.2135 | 未実行 |
 | **Track 3 (任意)** | 最小勾配ベースライン比較 | 未実行 | `frozen_test` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
 
 ---
@@ -59,3 +66,13 @@
 - [`experiments/track1_loo_ablation.json`](experiments/track1_loo_ablation.json) — Track 1 Leave-One-Out アブレーションログ
 - [`experiments/track1_patch_spec.json`](experiments/track1_patch_spec.json) — Track 1 採用パッチ仕様（`step1b_swiglu_order_gate_L15`）
 - [`experiments/track1_best_dev.md`](experiments/track1_best_dev.md) — Track 1 勝者モデル `select_dev` 全指標レポート
+- [`experiments/wsp_log.jsonl`](experiments/wsp_log.jsonl) — Track 2 全 3 軌跡 WSP 探索ステップ（Inspect / 仮説 / 3 点因果テスト / 3 軸回帰ゲート / KEEP・REVERT 決定）ログ
+- [`experiments/track2_trajectories_summary.md`](experiments/track2_trajectories_summary.md) — Track 2 3 軌跡フル `select_dev` 比較サマリー
+- [`experiments/track2_loo_ablation.json`](experiments/track2_loo_ablation.json) — Track 2 Leave-One-Out アブレーションログ
+- [`experiments/track2_patch_spec.json`](experiments/track2_patch_spec.json) — Track 2 最終勝者パッチ仕様（`L15` ドメイン専門 ＋ `L22` 同意専門）
+- [`experiments/track2_best_dev.md`](experiments/track2_best_dev.md) — Track 2 勝者モデル `select_dev` 全指標レポート
+- [`experiments/frozen_test_comparison.md`](experiments/frozen_test_comparison.md) — `frozen_test` 1 回限り解禁・全 4 系統（Track 0a / 0c / 1 / 2）比較レポート
+- [`experiments/frozen_track0a_zeroshot.md`](experiments/frozen_track0a_zeroshot.md) — `frozen_test` Track 0a (Zero-Shot) 個別レポート
+- [`experiments/frozen_track0c_oracle_chat.md`](experiments/frozen_track0c_oracle_chat.md) — `frozen_test` Track 0c (`oracle_chat`) 個別レポート
+- [`experiments/frozen_track1_best.md`](experiments/frozen_track1_best.md) — `frozen_test` Track 1 個別レポート
+- [`experiments/frozen_track2_best.md`](experiments/frozen_track2_best.md) — `frozen_test` Track 2 最終勝者個別レポート
