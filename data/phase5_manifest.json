@@ -1,0 +1,36 @@
+{
+  "seed": 20261124,
+  "file": "data/local_private/phase5_train.jsonl",
+  "sha256": "1c4e478d061ea484219a3463f04d88fa9b5b10cd6d3d4a3c7a621c700a755afc",
+  "total_rows": 683,
+  "by_subset": {
+    "real_cf": 200,
+    "real_cf_hard": 64,
+    "consent_5p": 192,
+    "long_50t": 32,
+    "decider_replay": 160,
+    "reason_7class": 35
+  },
+  "label_counts": {
+    "allow": 212,
+    "block": 276
+  },
+  "real_project_groups": [
+    "chitako-drable",
+    "pi-loopedslm"
+  ],
+  "num_families": 180,
+  "audit": {
+    "base_splits_sha256_intact": true,
+    "zero_leakage_vs_select_dev_and_frozen_test": true,
+    "held_out_project_groups_checked": [
+      "carla-ja",
+      "chitako-drive",
+      "home-sit",
+      "omp-tmp"
+    ],
+    "held_out_families_checked": 108,
+    "held_out_cmds_checked": 71,
+    "held_out_replay_checked": 120
+  }
+}

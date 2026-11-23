@@ -1,0 +1,55 @@
+{
+  "namespace": "ChiTako",
+  "repositories": [
+    {
+      "repo_id": "ChiTako/wsp-automode-0.8b",
+      "url": "https://huggingface.co/ChiTako/wsp-automode-0.8b",
+      "private": false,
+      "gguf_file": "wsp-automode-0.8b-Q8_0.gguf",
+      "gguf_bytes": 833590336,
+      "gguf_mib": 794.97,
+      "files": [
+        ".gitattributes",
+        "LICENSE",
+        "README.md",
+        "chat_template.jinja",
+        "config.json",
+        "merges.txt",
+        "model.safetensors-00001-of-00001.safetensors",
+        "model.safetensors.index.json",
+        "preprocessor_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "track2_patch_spec.json",
+        "video_preprocessor_config.json",
+        "vocab.json",
+        "wsp-automode-0.8b-Q8_0.gguf"
+      ]
+    },
+    {
+      "repo_id": "ChiTako/automode-0.8b",
+      "url": "https://huggingface.co/ChiTako/automode-0.8b",
+      "private": false,
+      "gguf_file": "automode-0.8b-Q8_0.gguf",
+      "gguf_bytes": 833590336,
+      "gguf_mib": 794.97,
+      "files": [
+        ".gitattributes",
+        "LICENSE",
+        "README.md",
+        "automode-0.8b-Q8_0.gguf",
+        "chat_template.jinja",
+        "config.json",
+        "merges.txt",
+        "model.safetensors-00001-of-00001.safetensors",
+        "model.safetensors.index.json",
+        "preprocessor_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "track3_final_patch_spec.json",
+        "video_preprocessor_config.json",
+        "vocab.json"
+      ]
+    }
+  ]
+}

@@ -1,8 +1,9 @@
 # `wsp-automode-0.8b` 研究開発進捗トラッカー
 
-> **リポジトリ**: [`Chiytako/wsp-automode-0.8b`](https://github.com/Chiytako/wsp-automode-0.8b)（`Qwen/Qwen3.5-0.8B` 上の無勾配 Weight-Space Programming 実験実装であり、`Mapika/decider` や `Chiytako/decider-auto` の公式リリースではありません）
+> **リポジトリ**: [`Chiytako/wsp-automode-0.8b`](https://github.com/Chiytako/wsp-automode-0.8b)（[`Qwen/Qwen3.5-0.8B`](https://huggingface.co/Qwen/Qwen3.5-0.8B) 上の Auto-Mode Decider 研究実験実装であり、`Mapika/decider` の公式リリースではありません）
+> **公開 Hugging Face モデル**: Track 2 無勾配 WSP [`ChiTako/wsp-automode-0.8b`](https://huggingface.co/ChiTako/wsp-automode-0.8b) ｜ Track 3 Final Weight-Space Soup [`ChiTako/automode-0.8b`](https://huggingface.co/ChiTako/automode-0.8b)
 
-勾配降下法（SFT / LoRA）を使わず、**重み直接編集（Context-to-Weight 焼き込み・STEER2EDIT＋Null-Space 射影・因果検証付き Weight-Space Programming）** を主軸として、`Qwen/Qwen3.5-0.8B` 単体で動作する高精度・完全 2 値・`llama.cpp` (`Q8_0` GGUF) 互換の Auto-Mode Decider を構築・検証するプロジェクトの経過記録です。
+Phase 1〜4 では勾配降下法（SFT / LoRA）を使わず **重み直接編集（Context-to-Weight 焼き込み・STEER2EDIT＋Null-Space 射影・因果検証付き Weight-Space Programming）** に徹し、Phase 5 では勾配最適化と重み空間統合（**順序同変 + 対照マージン + Bidirectional Replay KL LoRA + Weight-Space Model Soup**）を組み合わせて `Qwen/Qwen3.5-0.8B` 単体での安全性・汎用 `decider` 性能および `Q8_0` 量子化耐性の極大化を達成・公開しました。
 
 ---
 
@@ -31,12 +32,19 @@
   - [`runtime/export_hf.py`](runtime/export_hf.py) で Track 2 勝者パッチを HF `bf16` モデルへ書き出し（全 488 テンソル中 6 テンソル変更、`24,562` 要素、`||ΔW||_F = 11.88819`、`model.visual.*` 無変更）
   - [`runtime/convert_q8.sh`](runtime/convert_q8.sh) & [`runtime/launch_llama_server.sh`](runtime/launch_llama_server.sh) 実装（`llama.cpp` CUDA `sm_86` ビルド、`wsp-automode-0.8b-Q8_0.gguf` = `794.97 MiB < 1 GiB`、BOS なしトークナイザ完全一致 `exact_match = True`）
   - [`runtime/client.py`](runtime/client.py) & [`runtime/parity_check.py`](runtime/parity_check.py)：PyTorch `bf16` vs `llama-server` `Q8_0`（`select_dev` 200 件）で `p_block MAE = 0.0549`（Pearson `r = 0.9695`）、全体決定一致率 **`96.0%`**（`bf16` GGUF 20 件診断 `0.01691` により純粋な 8bit 量子化分散であることを確認）；`Q8_0` 単独で `real_cf` AUROC `0.8431`（SR `0.8719`）、`consent_5p` Acc `0.7708`；1-pass レイテンシ P50 **`71.73 ms`** / E2E P50 **`88.77 ms`**；単体テスト [`tests/test_phase4_runtime.py`](tests/test_phase4_runtime.py) **18/18** 通過
+- [x] **Phase 5（Track 3+）**：リークゼロ 683 件学習データ構築・24 層フル空間 LoRA（`GatedDeltaNet` 減衰＋順序同変＋対照＋KL）・Weight-Space Model Soup・`Q8_0` パリティ・単回 `frozen_test` 評価・Hugging Face 公開（2026-11-23）
+  - [`data/build_phase5_train.py`](data/build_phase5_train.py) & [`data/phase5_manifest.json`](data/phase5_manifest.json)：`observe` プロジェクト群（`chitako-drable`, `pi-loopedslm`）＋新規 180 ファミリー合成で 683 件を監査生成（`zero_leakage_vs_select_dev_and_frozen_test = true`, `base_splits_sha256_intact = true`）
+  - [`train/lora_model.py`](train/lora_model.py)・[`train/losses.py`](train/losses.py)・[`train/train_track3.py`](train/train_track3.py)：全 24 層 186 線形層への決定的 `dropout=0.0` LoRA ＋ float32 `A_log`/`dt_bias` ＋ スカラー連鎖律分離ファミリー勾配を実装（RTX 3050 Ti でピーク **`2.14–2.31 GB` VRAM**）。Base LoRA (`Track 3a` r=16 2ep `select_score=6.20938` / `Track 3c` r=32 3ep `6.26425`) が WSP Warm-Start (`Track 3b` `5.18841`, 高ノルムスパースゲートと上流表現シフトの干渉) を大きく上回ることを確認
+  - [`train/soup_and_calibrate.py`](train/soup_and_calibrate.py)：重み空間補間 **`Soup lam=0.25` (`0.25 * Track 3a + 0.75 * Track 3c`, `T=1.0`, `52.787731%`, `||ΔW||_F = 2.77189`)** が `select_dev` 最高 **`Select Score = 6.30240`**（`Proxy = 4.43365`, `real_cf 80/80` **AUROC `1.0` / Rec `1.0` / FPR `0.0`**, `consent_5p 0.9375`, `Flip 0.0 / 0.0`, `long_50t 0.9167` / SR `1.0`, `decider_replay 0.8833 / ECE 0.0801`）を達成
+  - `automode-0.8b-track3-Q8_0.gguf`（`794.97 MiB < 1 GiB`）：滑らかな重み分散 (`||ΔW||_F = 2.77`) により `Q8_0` 耐性が劇的に向上し、`select_dev` で PyTorch `bf16` と **`99.0%` 一致**（`p_block MAE = 0.00256`, `r = 0.99982`, P50 `71.26 ms`, `Q8_0` Proxy `4.48369`, `long_50t 1.0`, `replay 0.90 / ECE 0.0733`）を記録
+  - 単回ロック済 `frozen_test`（200 件・初見プロジェクト群、`experiments/phase5_frozen_comparison.md`）：PyTorch `bf16` と `Q8_0` GGUF で **200/200 (`100.0%`) 完全決定一致**（`p_block MAE = 0.00253`, `r = 0.999569`, P50 **`69.06 ms`**）、**`real_cf` AUROC `1.0000`**（Recall `1.000` / FPR `0.025` / Flip `0.000`）、**`consent_5p` Acc `0.9375`**（`P2=0.75 / P3=1.0 / P5a=1.0 / P5b=1.0` / Flip `0.0`）、**`long_50t` `0.9167`**、**`decider_replay` `0.7833 / ECE 0.0803`**（Proxy `bf16 4.35396` / `Q8_0 4.36611`）を達成
+  - [`runtime/upload_hf.py`](runtime/upload_hf.py)（[`experiments/hf_upload_summary.json`](experiments/hf_upload_summary.json)）：[`ChiTako/wsp-automode-0.8b`](https://huggingface.co/ChiTako/wsp-automode-0.8b)（Track 2）および [`ChiTako/automode-0.8b`](https://huggingface.co/ChiTako/automode-0.8b)（Track 3 Final）をともに Public 公開（`bf16 safetensors` + `< 1 GiB` `Q8_0` GGUF + Model Card、全 **25/25** `pytest` 通過）
 
 ---
 
 ## 実験トラック比較サマリー
 
-> **規約**: 未実行の項目は必ず `未実行` と記載し、推測値・未計測値は一切記入しません。`frozen_test` は Phase 3 終了時まで一切参照・評価しません。
+> **規約**: Phase 3 の凍結レポート（[`experiments/frozen_test_comparison.md`](experiments/frozen_test_comparison.md) 等）は不変のまま保持し、Phase 5 の単回 `frozen_test` 評価結果は [`experiments/phase5_frozen_comparison.md`](experiments/phase5_frozen_comparison.md) へ独立記録しています。
 
 | Track | 手法概要 | `% modified params` | 対象 Split | 実ログ AUROC | 実ログ Recall@0.5 | 実ログ FPR@0.5 | 5 パターン (P2 Allow / P3 Block) | Flip Rate | 長文 50T 保持 | 汎用 `decider` Acc / ECE | `Q8_0` パリティ誤差 |
 |---|---|---:|---|---|---|---|---|---|---|---|---|
@@ -46,11 +54,17 @@
 | **Track 1** | 校正済 SwiGLU 順序ゲート (`L15`・4 neuron) + Replay 強化 Null-Space (Gradient-Free) | 0.001633% (`12,283`) | `select_dev` | **0.8512 (`SR 0.8644`)** | **0.7000 (`SR 0.8000`)** | 0.2000 | Acc **0.7292** (`0.125 / 1.000`) | **0.1500** (rc) / **0.2708** (c5) | 0.5000 (recap ON: 0.5833) | **0.5500 / 0.1366** | 未実行 |
 | **Track 2** | 複数軌跡 WSP + 3 軸ゲート + LOO (`L15` Domain + `L22` Consent, Gradient-Free) | 0.003264% (`24,561`) | `select_dev` | **0.8731 (`SR 0.8753`)** | 0.6250 (`SR 0.7000`) | **0.1750** | Acc **0.7500** (`0.375 / 0.875`) | 0.2375 (rc) / **0.1042** (c5) | 0.5000 (recap ON: 0.5833) | 0.5333 / 0.1407 | MAE 0.0549 (bf16 GGUF 0.0169) / 96.0% 一致 / P50 71.73 ms |
 | **Track 2 (Q8_0 Runtime)** | `llama-server` `Q8_0` GGUF 単独評価 (`CUDA sm_86`) | 0.003264% (`794.97 MiB`) | `select_dev` | 0.8431 (`SR 0.8719`) | 0.6000 (`SR 0.6750`) | **0.1500** | Acc **0.7708** (`0.375 / 1.000`) | **0.2000** (rc) / **0.1042** (c5) | 0.5000 | 0.5333 / 0.1649 | 794.97 MiB / 96.0% 一致 / P50 71.73 ms |
+| **Track 3a (LoRA r=16 2ep)** | 24 層全線形 + DeltaNet Gate LoRA (対照＋順序同変＋Replay KL) | 52.28319% (`\|\|ΔW\|\|_F=2.80`) | `select_dev` | **1.0000** (`SR 1.0000`) | **1.0000** | 0.0250 | Acc 0.9167 (`1.000 / 0.875`) | **0.0000** | **0.9167** (recap ON: 0.9167) | **0.9167 / 0.1350** | 未実行 |
+| **Track 3b (WSP Warm-Start)** | Track 2 WSP (`L15+L22`) 初期化 ＋ LoRA r=16 2ep（負の干渉実験） | 51.528239% (`\|\|ΔW\|\|_F=12.16`) | `select_dev` | 0.9994 (`SR 0.9994`) | 0.9750 | **0.0000** | Acc 0.7708 (`0.750 / 1.000`) | 0.0250 / 0.1250 | 0.7500 (recap ON: 0.7500) | 0.8333 / 0.0812 | 未実行 |
+| **Track 3c (LoRA r=32 3ep)** | 高ランク 24 層 LoRA (対照＋順序同変＋Replay KL) | 54.805714% (`\|\|ΔW\|\|_F=3.48`) | `select_dev` | **1.0000** (`SR 1.0000`) | **1.0000** | 0.0500 | Acc **0.9375** (`1.000 / 0.875`) | 0.0125 / **0.0000** | **0.9167** (recap ON: 0.8333) | 0.8833 / 0.1050 | 未実行 |
+| **Track 3 Final (Soup bf16)** | Weight-Space Model Soup `0.25*3a + 0.75*3c` (`T=1.0`) | 52.787731% (`\|\|ΔW\|\|_F=2.77`) | `select_dev` | **1.0000** (`SR 1.0000`) | **1.0000** | **0.0000** | Acc **0.9375** (`1.000 / 0.875`) | **0.0000** | **0.9167** (`SR 1.0`) | 0.8833 / **0.0801** | MAE 0.00256 / **99.0% 一致** / P50 71.26 ms |
+| **Track 3 Final (Q8_0 Runtime)** | `llama-server` `Q8_0` GGUF 単独評価 (`CUDA sm_86`) | 52.787731% (`794.97 MiB`) | `select_dev` | **1.0000** (`SR 1.0000`) | **1.0000** | **0.0000** | Acc **0.9375** (`1.000 / 0.875`) | **0.0000** | **1.0000** | **0.9000 / 0.0733** | 794.97 MiB / 99.0% 一致 / P50 71.26 ms |
 | **Track 0a (Frozen)** | 未編集 Zero-Shot (Plain Layout) | 0.00% | `frozen_test` | 0.6587 (`SR 0.6353`) | 0.0250 (`SR 0.7500`) | 0.0000 | Acc 0.3958 (`0.875 / 0.125`) | 0.9875 (rc) / 0.8958 (c5) | 0.5833 (recap ON: 0.6667) | 0.5000 / 0.1989 | 未実行 |
 | **Track 0c (Frozen)** | 未編集 Oracle Prompt (`oracle_chat` 上限) | 0.00% | `frozen_test` | 0.6416 (`SR 0.6600`) | 1.0000 (`SR 0.9250`) | 0.9000 | Acc 0.5208 (`0.375 / 0.625`) | 0.2750 (rc) / 0.2292 (c5) | 0.5000 (recap ON: 0.5000) | 0.5000 / 0.1989 | 未実行 |
 | **Track 1 (Frozen)** | 校正済 SwiGLU 順序ゲート (`L15`, Gradient-Free) | 0.001633% (`12,283`) | `frozen_test` | 0.8213 (`SR 0.8241`) | **0.8500** (`SR 0.8250`) | 0.4750 | Acc 0.6875 (`0.125 / 0.875`) | **0.2000** (rc) / 0.2708 (c5) | 0.5833 (recap ON: 0.5833) | 0.5000 / 0.2138 | 未実行 |
-| **Track 2 (Final)** | Track 2 勝者パッチ (`L15`+`L22` SwiGLU, 凍結評価 1 回限り) | 0.003264% (`24,561`) | `frozen_test` | **0.8347 (`SR 0.8391`)** | 0.8000 (**`SR 0.8500`**) | **0.3500** | Acc **0.7292** (`0.375 / 0.875`) | 0.2375 (rc) / **0.1667** (c5) | 0.5833 (recap ON: 0.5833) | 0.5000 / 0.2135 | 未実行 |
-| **Track 3 (任意)** | 最小勾配ベースライン比較 | 未実行 | `frozen_test` | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 | 未実行 |
+| **Track 2 (Final)** | Track 2 勝者パッチ (`L15`+`L22` SwiGLU, 凍結評価 1 回限り) | 0.003264% (`24,561`) | `frozen_test` | **0.8347 (`SR 0.8391`)** | 0.8000 (`SR 0.8500`) | **0.3500** | Acc **0.7292** (`0.375 / 0.875`) | 0.2375 (rc) / **0.1667** (c5) | 0.5833 (recap ON: 0.5833) | 0.5000 / 0.2135 | 未実行 |
+| **Track 3 Final (Frozen `bf16`)** | Weight-Space Model Soup `λ=0.25` (凍結評価 1 回限り) | 52.787731% (`\|\|ΔW\|\|_F=2.77`) | `frozen_test` | **1.0000 (`SR 1.0000`)** | **1.0000** | **0.0250** | Acc **0.9375** (`0.750 / 1.000`) | **0.0000** | **0.9167** (recap ON: 0.8333) | **0.7833 / 0.0828** | MAE 0.00253 / **100.0% 一致** / P50 69.06 ms |
+| **Track 3 Final (Frozen `Q8_0`)** | `llama-server` `Q8_0` GGUF (`CUDA sm_86`, 凍結評価 1 回限り) | 52.787731% (`794.97 MiB`) | `frozen_test` | **1.0000 (`SR 1.0000`)** | **1.0000** | **0.0250** | Acc **0.9375** (`0.750 / 1.000`) | **0.0000** | **0.9167** | **0.7833 / 0.0803** | **794.97 MiB / 100.0% 一致** / P50 **69.06 ms** |
 
 ---
 
@@ -82,3 +96,14 @@
 - [`experiments/frozen_track2_best.md`](experiments/frozen_track2_best.md) — `frozen_test` Track 2 最終勝者個別レポート
 - [`experiments/phase4_parity_report.md`](experiments/phase4_parity_report.md) — Phase 4 `Q8_0` GGUF パリティ・`bf16` GGUF 比較・レイテンシ・E2E TurnGuard レポート
 - [`experiments/phase4_parity_report.json`](experiments/phase4_parity_report.json) — Phase 4 パリティ・単独評価・E2E スモーク計測 JSON
+- [`data/phase5_manifest.json`](data/phase5_manifest.json) — Phase 5 学習データ (683 件・180 ファミリー) リークゼロ検証・SHA-256 マニフェスト
+- [`experiments/track3a_base_lora_best_dev.md`](experiments/track3a_base_lora_best_dev.md) — Track 3a (Base LoRA r=16, 2ep) `select_dev` 評価レポート
+- [`experiments/track3b_wsp_warmstart_lora_best_dev.md`](experiments/track3b_wsp_warmstart_lora_best_dev.md) — Track 3b (WSP Warm-Start LoRA r=16, 2ep) `select_dev` 評価・干渉実験レポート
+- [`experiments/track3c_r32_3ep_lora_best_dev.md`](experiments/track3c_r32_3ep_lora_best_dev.md) — Track 3c (Base LoRA r=32, 3ep) `select_dev` 評価レポート
+- [`experiments/track3_dev_comparison.md`](experiments/track3_dev_comparison.md) — Track 0–3c + Model Soup + RMSNorm 温度スイープ `select_dev` 比較レポート
+- [`experiments/track3_final_best_dev.md`](experiments/track3_final_best_dev.md) — Track 3 Final (`Soup lam=0.25`, `T=1.0`) `select_dev` 全指標レポート
+- [`experiments/track3_final_patch_spec.json`](experiments/track3_final_patch_spec.json) — Track 3 Final Weight-Space Soup マージパッチ仕様
+- [`experiments/phase5_track3_parity_dev.md`](experiments/phase5_track3_parity_dev.md) — Phase 5 Track 3 Final `Q8_0` GGUF パリティ・レイテンシ (`select_dev`)
+- [`experiments/phase5_track3_parity_frozen.md`](experiments/phase5_track3_parity_frozen.md) — Phase 5 Track 3 Final 単回ロック済 `frozen_test` パリティ・単独計測レポート
+- [`experiments/phase5_frozen_comparison.md`](experiments/phase5_frozen_comparison.md) — Phase 5 単回 `frozen_test` 全系統（Track 0a / 0c / 1 / 2 / 3 `bf16` / 3 `Q8_0`）比較レポート
+- [`experiments/hf_upload_summary.json`](experiments/hf_upload_summary.json) — Hugging Face Public 公開（`ChiTako/wsp-automode-0.8b` & `ChiTako/automode-0.8b`）検証サマリー

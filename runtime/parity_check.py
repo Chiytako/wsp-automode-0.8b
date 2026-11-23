@@ -12,10 +12,15 @@ import argparse
 import gc
 import json
 import subprocess
+import sys
 import time
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import numpy as np
 import torch
@@ -57,8 +62,13 @@ def run_parity_suite(
     deltas_path: Path,
     gguf_path: Path,
     port: int = 8091,
+    split: str = "select_dev",
+    unlock_frozen_test: bool = False,
+    output_prefix: str = "phase4_parity_report",
+    title: str = "Phase 4: `Q8_0` GGUF Parity, Latency & E2E Turn-Guard Report",
+    ref_proxy: float | str | None = None,
 ) -> dict[str, Any]:
-    rows = load_split_rows("select_dev")
+    rows = load_split_rows(split, unlock_frozen_test=unlock_frozen_test)
     by_subset: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         by_subset.setdefault(r["subset"], []).append(r)
@@ -66,7 +76,7 @@ def run_parity_suite(
     # ------------------------------------------------------------------
     # Stage 1: PyTorch bf16 reference evaluation (then release GPU VRAM)
     # ------------------------------------------------------------------
-    print("[Phase 4] Stage 1: Running PyTorch bf16 reference on select_dev (n=200)...")
+    print(f"[Parity] Stage 1: Running PyTorch bf16 reference on {split} (n={len(rows)})...")
     runner = QwenDeciderRunner()
     base_cpu = capture_cpu_state_dict(runner.model)
     bundle = load_patch_bundle(deltas_path)
@@ -97,17 +107,51 @@ def run_parity_suite(
     for r in by_subset.get("decider_replay", []):
         pb = build_decider_prompt(r["context"], spec=r["question_spec"], reverse_options=False)
         res = runner.score_prompt(pb.text, pb.option_letters, yes_idx=pb.yes_idx, no_idx=pb.no_idx)
+        gold_idx = int(r["gold_index"])
+        pt_brier = sum((p - (1.0 if j == gold_idx else 0.0)) ** 2 for j, p in enumerate(res.option_probs)) / len(res.option_probs)
         rendered_replay.append(
             {
                 "id": r["id"],
                 "q_type": r["q_type"],
                 "context": r["context"],
                 "question_spec": r["question_spec"],
-                "gold_index": int(r["gold_index"]),
+                "gold_index": gold_idx,
                 "pt_pred_index": int(res.pred_index),
                 "pt_top_prob": float(res.option_probs[res.pred_index]),
+                "pt_brier": pt_brier,
             }
         )
+
+    long_recap_recs: list[dict[str, Any]] = []
+    for r in by_subset.get("long_50t", []):
+        ctx_r = render_view(r, tok=runner.tokenizer, budget=3200, include_recap=True).text
+        sc_r = runner.score_binary_paired(ctx_r, mode="plain", question_spec=Q_BLOCK_BINARY)
+        long_recap_recs.append({"y": 1 if r["label"] == "block" else 0, **sc_r})
+    la_r = [x for x in long_recap_recs if x["y"] == 0]
+    lb_r = [x for x in long_recap_recs if x["y"] == 1]
+    pt_long_recap_ablation = {
+        "n": len(long_recap_recs),
+        "include_recap": True,
+        "overall_acc": round(
+            sum(1 for x in long_recap_recs if (x["pred_normal"] == "block") == (x["y"] == 1))
+            / max(1, len(long_recap_recs)),
+            4,
+        ),
+        "early_consent_allow_rate": round(
+            sum(1 for x in la_r if x["pred_normal"] == "allow") / max(1, len(la_r)), 4
+        ),
+        "mismatch_block_rate": round(
+            sum(1 for x in lb_r if x["pred_normal"] == "block") / max(1, len(lb_r)), 4
+        ),
+        "order_flip_rate": round(
+            sum(1 for x in long_recap_recs if x["flipped"]) / max(1, len(long_recap_recs)), 4
+        ),
+        "second_reading_acc": round(
+            sum(1 for x in long_recap_recs if (x["pred_second_reading"] == "block") == (x["y"] == 1))
+            / max(1, len(long_recap_recs)),
+            4,
+        ),
+    }
 
     # Free PyTorch model from GPU completely before starting CUDA llama-server
     del base_cpu
@@ -179,6 +223,8 @@ def run_parity_suite(
                 "pt_pred_sr": pt_sc["pred_second_reading"],
                 "q8_pred_sr": "block" if q8_sc["p_block_final"] >= 0.5 else "allow",
                 "q8_sr_trig": bool(q8_sc["second_reading_triggered"]),
+                "pt_flipped": bool(pt_sc["flipped"]),
+                "pt_abs_order_diff": float(pt_sc["order_abs_margin_diff"]),
                 "q8_flipped": (q8_sc["p_block_normal"] >= 0.5) != (float(q8_sc["p_block_reversed"]) >= 0.5),
                 "q8_abs_order_diff": abs(float(q8_sc["margin_normal"]) - float(q8_sc["margin_reversed"])),
             }
@@ -198,6 +244,9 @@ def run_parity_suite(
                     "q_type": item["q_type"],
                     "gold_index": item["gold_index"],
                     "pt_pred_index": item["pt_pred_index"],
+                    "pt_correct": int(item["pt_pred_index"] == item["gold_index"]),
+                    "pt_top_prob": float(item["pt_top_prob"]),
+                    "pt_brier": float(item["pt_brier"]),
                     "q8_pred_index": pred_idx,
                     "agree": int(pred_idx == item["pt_pred_index"]),
                     "q8_correct": int(pred_idx == item["gold_index"]),
@@ -206,90 +255,133 @@ def run_parity_suite(
                 }
             )
 
-        # Compute Q8_0 select_dev metrics mirroring eval/evaluate.py
-        rc_list = binary_results_by_subset["real_cf"]
-        rc_metrics = compute_binary_metrics(
-            [x["q8_p_block"] for x in rc_list],
-            [x["y"] for x in rc_list],
-            [x["q8_margin_norm"] for x in rc_list],
-        )
-        rc_metrics["order_flip_rate"] = round(sum(1 for x in rc_list if x["q8_flipped"]) / len(rc_list), 4)
-        rc_metrics["mean_abs_order_diff"] = round(float(np.mean([x["q8_abs_order_diff"] for x in rc_list])), 4)
-        rc_metrics["second_reading"] = compute_binary_metrics(
-            [x["q8_p_block_sr"] for x in rc_list],
-            [x["y"] for x in rc_list],
-            [0.5 * (x["q8_margin_norm"] + x["q8_margin_rev"]) for x in rc_list],
-        )
-
-        c5_list = binary_results_by_subset["consent_5p"]
-        c5_bin = compute_binary_metrics(
-            [x["q8_p_block"] for x in c5_list],
-            [x["y"] for x in c5_list],
-            [x["q8_margin_norm"] for x in c5_list],
-        )
-        per_pat_acc = {}
-        for pat in (
-            "p1_no_consent",
-            "p2_exact_consent",
-            "p3_target_mismatch",
-            "p4_vague_consent",
-            "p5a_blocked_approved_same",
-            "p5b_blocked_swapped_target",
-        ):
-            sub = [x for x in c5_list if x["pattern"] == pat]
-            per_pat_acc[pat] = round(
-                sum(1 for x in sub if (x["q8_pred_norm"] == "block") == (x["y"] == 1)) / max(1, len(sub)), 4
+        def _summarize_backend(prefix: str) -> dict[str, Any]:
+            p_rc = binary_results_by_subset["real_cf"]
+            b_rc = compute_binary_metrics(
+                [x[f"{prefix}_p_block"] for x in p_rc],
+                [x["y"] for x in p_rc],
+                [x[f"{prefix}_margin_norm"] for x in p_rc],
             )
-        p2_sub = [x for x in c5_list if x["pattern"] == "p2_exact_consent"]
-        p3_sub = [x for x in c5_list if x["pattern"] == "p3_target_mismatch"]
-        p5a_sub = [x for x in c5_list if x["pattern"] == "p5a_blocked_approved_same"]
-        p5b_sub = [x for x in c5_list if x["pattern"] == "p5b_blocked_swapped_target"]
-        c5_summary = {
-            "n": len(c5_list),
-            "overall_acc": c5_bin["acc_at_05"],
-            "per_pattern_acc": per_pat_acc,
-            "p2_allow_rate": per_pat_acc["p2_exact_consent"],
-            "p3_block_rate": per_pat_acc["p3_target_mismatch"],
-            "p5a_allow_rate": per_pat_acc["p5a_blocked_approved_same"],
-            "p5b_block_rate": per_pat_acc["p5b_blocked_swapped_target"],
-            "margin_sep_p3_minus_p2": round(
-                float(np.mean([x["q8_margin_norm"] for x in p3_sub]) - np.mean([x["q8_margin_norm"] for x in p2_sub])), 4
-            ),
-            "margin_sep_p5b_minus_p5a": round(
-                float(np.mean([x["q8_margin_norm"] for x in p5b_sub]) - np.mean([x["q8_margin_norm"] for x in p5a_sub])), 4
-            ),
-            "order_flip_rate": round(sum(1 for x in c5_list if x["q8_flipped"]) / len(c5_list), 4),
-            "mean_abs_order_diff": round(float(np.mean([x["q8_abs_order_diff"] for x in c5_list])), 4),
-            "binary_metrics": c5_bin,
-        }
+            b_rc["order_flip_rate"] = round(sum(1 for x in p_rc if x[f"{prefix}_flipped"]) / len(p_rc), 4)
+            b_rc["mean_abs_order_diff"] = round(float(np.mean([x[f"{prefix}_abs_order_diff"] for x in p_rc])), 4)
+            b_rc["second_reading"] = compute_binary_metrics(
+                [x[f"{prefix}_p_block_sr"] for x in p_rc],
+                [x["y"] for x in p_rc],
+                [0.5 * (x[f"{prefix}_margin_norm"] + x[f"{prefix}_margin_rev"]) for x in p_rc],
+            )
 
+            p_c5 = binary_results_by_subset["consent_5p"]
+            b_c5_bin = compute_binary_metrics(
+                [x[f"{prefix}_p_block"] for x in p_c5],
+                [x["y"] for x in p_c5],
+                [x[f"{prefix}_margin_norm"] for x in p_c5],
+            )
+            b_per_pat = {}
+            for pat in (
+                "p1_no_consent",
+                "p2_exact_consent",
+                "p3_target_mismatch",
+                "p4_vague_consent",
+                "p5a_blocked_approved_same",
+                "p5b_blocked_swapped_target",
+            ):
+                sub = [x for x in p_c5 if x["pattern"] == pat]
+                b_per_pat[pat] = round(
+                    sum(1 for x in sub if (x[f"{prefix}_pred_norm"] == "block") == (x["y"] == 1)) / max(1, len(sub)), 4
+                )
+            p2s = [x for x in p_c5 if x["pattern"] == "p2_exact_consent"]
+            p3s = [x for x in p_c5 if x["pattern"] == "p3_target_mismatch"]
+            p5as = [x for x in p_c5 if x["pattern"] == "p5a_blocked_approved_same"]
+            p5bs = [x for x in p_c5 if x["pattern"] == "p5b_blocked_swapped_target"]
+            b_c5 = {
+                "n": len(p_c5),
+                "overall_acc": b_c5_bin["acc_at_05"],
+                "per_pattern_acc": b_per_pat,
+                "p2_allow_rate": b_per_pat["p2_exact_consent"],
+                "p3_block_rate": b_per_pat["p3_target_mismatch"],
+                "p5a_allow_rate": b_per_pat["p5a_blocked_approved_same"],
+                "p5b_block_rate": b_per_pat["p5b_blocked_swapped_target"],
+                "margin_sep_p3_minus_p2": round(
+                    float(np.mean([x[f"{prefix}_margin_norm"] for x in p3s]) - np.mean([x[f"{prefix}_margin_norm"] for x in p2s])), 4
+                ),
+                "margin_sep_p5b_minus_p5a": round(
+                    float(np.mean([x[f"{prefix}_margin_norm"] for x in p5bs]) - np.mean([x[f"{prefix}_margin_norm"] for x in p5as])), 4
+                ),
+                "order_flip_rate": round(sum(1 for x in p_c5 if x[f"{prefix}_flipped"]) / len(p_c5), 4),
+                "mean_abs_order_diff": round(float(np.mean([x[f"{prefix}_abs_order_diff"] for x in p_c5])), 4),
+                "binary_metrics": b_c5_bin,
+            }
+
+            p_lg = binary_results_by_subset["long_50t"]
+            la = [x for x in p_lg if x["y"] == 0]
+            lb = [x for x in p_lg if x["y"] == 1]
+            b_lg_bin = compute_binary_metrics(
+                [x[f"{prefix}_p_block"] for x in p_lg],
+                [x["y"] for x in p_lg],
+                [x[f"{prefix}_margin_norm"] for x in p_lg],
+            )
+            b_lg: dict[str, Any] = {
+                "n": len(p_lg),
+                "include_recap": False,
+                "overall_acc": round(
+                    sum(1 for x in p_lg if (x[f"{prefix}_pred_norm"] == "block") == (x["y"] == 1))
+                    / max(1, len(p_lg)),
+                    4,
+                ),
+                "early_consent_allow_rate": round(
+                    sum(1 for x in la if x[f"{prefix}_pred_norm"] == "allow") / max(1, len(la)), 4
+                ),
+                "mismatch_block_rate": round(
+                    sum(1 for x in lb if x[f"{prefix}_pred_norm"] == "block") / max(1, len(lb)), 4
+                ),
+                "margin_separation": b_lg_bin["margin_separation"],
+                "order_flip_rate": round(
+                    sum(1 for x in p_lg if x[f"{prefix}_flipped"]) / max(1, len(p_lg)), 4
+                ),
+                "second_reading_acc": round(
+                    sum(1 for x in p_lg if (x[f"{prefix}_pred_sr"] == "block") == (x["y"] == 1))
+                    / max(1, len(p_lg)),
+                    4,
+                ),
+            }
+            if prefix == "pt":
+                b_lg["with_recap_ablation"] = pt_long_recap_ablation
+
+            corr_k = f"{prefix}_correct"
+            prob_k = f"{prefix}_top_prob"
+            brier_k = "pt_brier" if prefix == "pt" else "brier"
+            acc_by_type = {}
+            for qt in ("noul", "choice", "score"):
+                sub_r = [x for x in replay_records if x["q_type"] == qt]
+                if sub_r:
+                    acc_by_type[qt] = round(sum(x[corr_k] for x in sub_r) / len(sub_r), 4)
+            b_rep = {
+                "n": len(replay_records),
+                "overall_acc": round(sum(x[corr_k] for x in replay_records) / len(replay_records), 4),
+                "acc_by_type": acc_by_type,
+                "top_label_ece": round(
+                    compute_ece([x[prob_k] for x in replay_records], [x[corr_k] for x in replay_records]), 4
+                ),
+                "brier": round(float(np.mean([x[brier_k] for x in replay_records])), 4),
+            }
+            rep_obj = {
+                "real_cf": b_rc,
+                "consent_5p": b_c5,
+                "long_50t": b_lg,
+                "decider_replay": b_rep,
+            }
+            rep_obj["proxy"] = compute_proxy_score(rep_obj)
+            return rep_obj
+
+        pt_report = _summarize_backend("pt")
+        q8_report = _summarize_backend("q8")
+        rc_list = binary_results_by_subset["real_cf"]
+        c5_list = binary_results_by_subset["consent_5p"]
         l_list = binary_results_by_subset["long_50t"]
-        l_allow = [x for x in l_list if x["y"] == 0]
-        l_blk = [x for x in l_list if x["y"] == 1]
-        long_summary = {
-            "n": len(l_list),
-            "overall_acc": round(
-                sum(1 for x in l_list if (x["q8_pred_norm"] == "block") == (x["y"] == 1)) / len(l_list), 4
-            ),
-            "early_consent_allow_rate": round(sum(1 for x in l_allow if x["q8_pred_norm"] == "allow") / len(l_allow), 4),
-            "mismatch_block_rate": round(sum(1 for x in l_blk if x["q8_pred_norm"] == "block") / len(l_blk), 4),
-        }
-
-        rep_summary = {
-            "n": len(replay_records),
-            "overall_acc": round(sum(x["q8_correct"] for x in replay_records) / len(replay_records), 4),
-            "top_label_ece": round(
-                compute_ece([x["q8_top_prob"] for x in replay_records], [x["q8_correct"] for x in replay_records]), 4
-            ),
-            "brier": round(float(np.mean([x["brier"] for x in replay_records])), 4),
-        }
-        q8_report = {
-            "real_cf": rc_metrics,
-            "consent_5p": c5_summary,
-            "long_50t": long_summary,
-            "decider_replay": rep_summary,
-        }
-        q8_report["proxy"] = compute_proxy_score(q8_report)
+        rc_metrics = q8_report["real_cf"]
+        c5_summary = q8_report["consent_5p"]
+        long_summary = q8_report["long_50t"]
+        rep_summary = q8_report["decider_replay"]
 
         # Parity calculations across all 140 binary + 60 replay rows
         all_bin = rc_list + c5_list + l_list
@@ -379,7 +471,9 @@ def run_parity_suite(
         e2e_scenarios.append({"scenario": "4_consecutive_block_cap", "trace": cap_trace})
 
         parity_summary = {
-            "gguf_file": str(gguf_path),
+            "split": split,
+            "gguf_file": gguf_path.name,
+            "gguf_name": gguf_path.name,
             "gguf_bytes": gguf_bytes,
             "gguf_mib": round(gguf_mib, 2),
             "under_1gb": gguf_bytes < 1073741824,
@@ -402,34 +496,38 @@ def run_parity_suite(
             "second_reading_trigger_rate_140": round(sum(1 for x in all_bin if x["q8_sr_trig"]) / len(all_bin), 4),
         }
 
-        payload = {
+        payload: dict[str, Any] = {
             "parity": parity_summary,
-            "q8_select_dev_metrics": q8_report,
+            "pt_split_metrics": pt_report,
+            "q8_split_metrics": q8_report,
             "e2e_turn_guard_smoke": e2e_scenarios,
         }
+        if split == "select_dev":
+            payload["q8_select_dev_metrics"] = q8_report
 
         EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
-        (EXPERIMENTS_DIR / "phase4_parity_report.json").write_text(
+        (EXPERIMENTS_DIR / f"{output_prefix}.json").write_text(
             json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
+        ref_proxy_str = str(ref_proxy) if ref_proxy is not None else str(pt_report["proxy"]["proxy_score"])
         md_lines = [
-            "# Phase 4: `Q8_0` GGUF Parity, Latency & E2E Turn-Guard Report",
+            f"# {title}",
             "",
             "## 1. GGUF Artifact & Tokenizer Verification",
             f"- **GGUF Path**: `{gguf_path.name}` | **Size**: `{parity_summary['gguf_mib']} MiB` (`{gguf_bytes}` bytes, **< 1 GiB = `{parity_summary['under_1gb']}`**)",
             f"- **Tokenizer Parity (BOS-free)**: `exact_match = {tok_exact_match}` (`hf_len={len(hf_sample_tokens)}`, `llama_len={len(llama_sample_tokens)}`)",
             "",
-            "## 2. PyTorch `bf16` vs `llama-server` `Q8_0` Parity (`select_dev`, n=200)",
+            f"## 2. PyTorch `bf16` vs `llama-server` `Q8_0` Parity (`{split}`, n={len(rows)})",
             f"- **`p_block` MAE (Normal)**: `{parity_summary['p_block_mae_normal']}` (Max AE `{parity_summary['p_block_max_ae_normal']}`, Pearson `r = {parity_summary['p_block_pearson_r']}`)",
             f"- **`p_block` MAE (Second-Reading)**: `{parity_summary['p_block_mae_second_reading']}` | **Margin MAE (Normal)**: `{parity_summary['margin_mae_normal']}`",
-            f"- **Binary Decision Agreement**: Normal `{parity_summary['agreement_binary_normal']}` | Second-Reading `{parity_summary['agreement_binary_second_reading']}` | Replay `{parity_summary['agreement_replay']}` | **Total (200 rows) `{parity_summary['agreement_total_200']}`**",
+            f"- **Binary Decision Agreement**: Normal `{parity_summary['agreement_binary_normal']}` | Second-Reading `{parity_summary['agreement_binary_second_reading']}` | Replay `{parity_summary['agreement_replay']}` | **Total ({len(rows)} rows) `{parity_summary['agreement_total_200']}`**",
             "",
-            "## 3. Standalone `Q8_0` Metrics on `select_dev` (Verifying `0.003264%` Edits Survive Quantization)",
-            f"- **Proxy Score (`Q8_0`)**: `{q8_report['proxy']['proxy_score']}` (PyTorch `bf16` Track 2 was `0.56208`)",
-            f"- **`real_cf` (n=80)**: AUROC `{rc_metrics['auroc']}` (SR `{rc_metrics['second_reading']['auroc']}`), Recall@0.5 `{rc_metrics['recall_at_05']}`, FPR@0.5 `{rc_metrics['fpr_at_05']}`, Flip `{rc_metrics['order_flip_rate']}`",
-            f"- **`consent_5p` (n=48)**: Acc `{c5_summary['overall_acc']}`, `P2={c5_summary['p2_allow_rate']}`, `P3={c5_summary['p3_block_rate']}`, `P5a={c5_summary['p5a_allow_rate']}`, `P5b={c5_summary['p5b_block_rate']}`, `P3-P2={c5_summary['margin_sep_p3_minus_p2']}`, Flip `{c5_summary['order_flip_rate']}`",
-            f"- **`long_50t` (n=12)**: Acc `{long_summary['overall_acc']}` (`EarlyAllow={long_summary['early_consent_allow_rate']}`, `MisBlock={long_summary['mismatch_block_rate']}`)",
-            f"- **`decider_replay` (n=60)**: Acc `{rep_summary['overall_acc']}`, ECE `{rep_summary['top_label_ece']}`",
+            f"## 3. Standalone `Q8_0` Metrics on `{split}`",
+            f"- **Proxy Score (`Q8_0`)**: `{q8_report['proxy']['proxy_score']}` (PyTorch `bf16` reference `{ref_proxy_str}`)",
+            f"- **`real_cf` (n={rc_metrics['n']})**: AUROC `{rc_metrics['auroc']}` (SR `{rc_metrics['second_reading']['auroc']}`), Recall@0.5 `{rc_metrics['recall_at_05']}`, FPR@0.5 `{rc_metrics['fpr_at_05']}`, Flip `{rc_metrics['order_flip_rate']}`",
+            f"- **`consent_5p` (n={c5_summary['n']})**: Acc `{c5_summary['overall_acc']}`, `P2={c5_summary['p2_allow_rate']}`, `P3={c5_summary['p3_block_rate']}`, `P5a={c5_summary['p5a_allow_rate']}`, `P5b={c5_summary['p5b_block_rate']}`, `P3-P2={c5_summary['margin_sep_p3_minus_p2']}`, Flip `{c5_summary['order_flip_rate']}`",
+            f"- **`long_50t` (n={long_summary['n']})**: Acc `{long_summary['overall_acc']}` (`EarlyAllow={long_summary['early_consent_allow_rate']}`, `MisBlock={long_summary['mismatch_block_rate']}`)",
+            f"- **`decider_replay` (n={rep_summary['n']})**: Acc `{rep_summary['overall_acc']}`, ECE `{rep_summary['top_label_ece']}`",
             "",
             "## 4. `llama-server` Inference Latency (`CUDA sm_86`, `-ngl all`)",
             f"- **1-Pass `/completion` Latency**: **P50 = `{parity_summary['latency_1pass_p50_ms']} ms`** | **P95 = `{parity_summary['latency_1pass_p95_ms']} ms`**",
@@ -440,7 +538,7 @@ def run_parity_suite(
         for sc in e2e_scenarios:
             md_lines.append(f"- `{sc['scenario']}`: `{json.dumps(sc, ensure_ascii=False)}`")
         md_text = "\n".join(md_lines) + "\n"
-        (EXPERIMENTS_DIR / "phase4_parity_report.md").write_text(md_text, encoding="utf-8")
+        (EXPERIMENTS_DIR / f"{output_prefix}.md").write_text(md_text, encoding="utf-8")
         print(md_text)
         return payload
     finally:
@@ -458,8 +556,22 @@ def main() -> None:
     ap.add_argument("--deltas", default=str(CHECKPOINTS_DIR / "track2_best_deltas.pt"))
     ap.add_argument("--gguf", default=str(CHECKPOINTS_DIR / "wsp-automode-0.8b-Q8_0.gguf"))
     ap.add_argument("--port", type=int, default=8091)
+    ap.add_argument("--split", choices=["select_dev", "frozen_test"], default="select_dev")
+    ap.add_argument("--unlock-frozen-test", action="store_true")
+    ap.add_argument("--output-prefix", default="phase4_parity_report")
+    ap.add_argument("--title", default="Phase 4: `Q8_0` GGUF Parity, Latency & E2E Turn-Guard Report")
+    ap.add_argument("--ref-proxy", default=None)
     args = ap.parse_args()
-    run_parity_suite(deltas_path=Path(args.deltas), gguf_path=Path(args.gguf), port=args.port)
+    run_parity_suite(
+        deltas_path=Path(args.deltas),
+        gguf_path=Path(args.gguf),
+        port=args.port,
+        split=args.split,
+        unlock_frozen_test=args.unlock_frozen_test,
+        output_prefix=args.output_prefix,
+        title=args.title,
+        ref_proxy=args.ref_proxy,
+    )
 
 
 if __name__ == "__main__":
