@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "data" / "manifest.json"
 EXP_DIR = ROOT / "experiments"
 
-PRIVACY_FORBIDDEN = ("/home/sit", "decider-auto")
+PRIVACY_FORBIDDEN = ("/home/sit", "decider-auto", "decider-4b")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -75,6 +75,8 @@ def test_paper_artifacts_privacy_and_markdown_hygiene() -> None:
         EXP_DIR / "paper_mechanism_analysis.md",
         EXP_DIR / "paper_statistics.json",
         EXP_DIR / "paper_statistics.md",
+        EXP_DIR / "paper_revision_controls.json",
+        EXP_DIR / "paper_revision_controls.md",
     ]
     for path in artifact_paths:
         assert path.exists(), f"Missing paper artifact: {path.name}"
@@ -207,3 +209,68 @@ def test_statistical_analysis_invariants() -> None:
 
     t3_err = st["adversarial_error_analysis"]["ours_track3_soup_bf16"]
     assert t3_err["n_errors"] == 13
+
+    assert st["holm_family"]["m"] == 16
+    primary_models = {(pw["model_a"], pw["model_b"]) for pw in st["pairwise_tests"]}
+    assert ("ours_track3_soup_bf16", "mit_wsp_0.8b") not in primary_models
+    assert ("ours_track2_wsp", "mit_wsp_0.8b") not in primary_models
+    assert len(st["secondary_comparisons"]) == 3
+
+
+def test_q8_exact_tokenizer_parity() -> None:
+    ext = _load_json(EXP_DIR / "paper_external_frozen.json")
+    adv = _load_json(EXP_DIR / "paper_adversarial_results.json")
+    assert ext.get("q8_tokenizer_mode") == "exact_hf_tokenizer"
+    assert adv.get("q8_tokenizer_mode") == "exact_hf_tokenizer"
+
+    fr_bf = ext["models"]["ours_track3_soup_bf16"]["summary"]
+    fr_q8 = ext["models"]["ours_track3_soup_q8"]["summary"]
+    assert fr_q8["real_cf"]["auroc"] == fr_bf["real_cf"]["auroc"] == 1.0
+    assert fr_q8["real_cf"]["recall_at_05"] == fr_bf["real_cf"]["recall_at_05"] == 1.0
+    assert fr_q8["real_cf"]["fpr_at_05"] == fr_bf["real_cf"]["fpr_at_05"] == 0.025
+    assert fr_q8["real_cf"]["order_flip_rate"] == fr_bf["real_cf"]["order_flip_rate"] == 0.0
+    assert fr_q8["consent_5p"]["overall_acc"] == fr_bf["consent_5p"]["overall_acc"] == 0.9375
+    assert fr_q8["long_50t"]["overall_acc"] == fr_bf["long_50t"]["overall_acc"] == 0.9167
+    assert fr_q8["decider_replay"]["overall_acc"] == fr_bf["decider_replay"]["overall_acc"] == 0.7833
+
+    ad_bf = adv["models"]["ours_track3_soup_bf16"]["summary"]
+    ad_q8 = adv["models"]["ours_track3_soup_q8"]["summary"]
+    assert ad_q8["overall_acc"] == ad_bf["overall_acc"]
+    assert ad_q8["overall_asr"] == ad_bf["overall_asr"]
+    assert ad_q8["benign_fpr"] == ad_bf["benign_fpr"] == 0.25
+
+
+def test_revision_controls_completeness_and_causality() -> None:
+    rc = _load_json(EXP_DIR / "paper_revision_controls.json")
+    for sec in (
+        "kquant_diagnostics",
+        "mixed_precision_mitigation",
+        "multi_neuron_dispersion",
+        "kquant_double_dissociation",
+        "deconfound_controls",
+        "warmstart_causality",
+    ):
+        assert sec in rc, f"Missing revision controls section: {sec}"
+
+    # Verify R2d causal double dissociation (backbone Q8_0 rescues while 6x BF16 fails)
+    r2b = rc["mixed_precision_mitigation"]["configs"]
+    r2d = rc["kquant_double_dissociation"]["configs"]
+    assert r2b["Q4_K_M_6x_bf16"]["pearson_r"] < 0.60
+    assert r2d["Q8_0_backbone_t2_Q4_K"]["pearson_r"] > 0.94
+    assert r2d["Q4_K_M_L0_22_q8_0_t2_bf16"]["pearson_r"] > 0.96
+
+    # Verify R3 all 3 deconfounding controls
+    dc = rc["deconfound_controls"]
+    for cname in ("ctrl_sparse_8neuron_grad", "ctrl_lora_r1_same6", "ctrl_lora_r1_depth8"):
+        assert cname in dc
+        assert math.isfinite(dc[cname]["frozen_test_summary"]["proxy_score"])
+        assert set(dc[cname]["quantization_curve"].keys()) == {"Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"}
+
+    # Verify R4 all 5 in-situ warm-start causality conditions
+    ws = rc["warmstart_causality"]
+    for wname in ("t3a_insitu_base", "t3b_insitu_full", "t3b_lowlr_5x", "t3b_freeze_L0_14", "t3b_freeze_t2gates"):
+        assert wname in ws
+        assert len(ws[wname]["step_snapshots"]) == 8
+    assert ws["t3b_freeze_L0_14"]["step_snapshots"][-1]["h15_cos_vs_base_mean"] >= 0.9999
+    assert ws["t3b_freeze_L0_14"]["peak_recent20_loss"] < ws["t3b_insitu_full"]["peak_recent20_loss"]
+    assert ws["t3b_freeze_L0_14"]["peak_recent20_loss"] < ws["t3b_freeze_t2gates"]["peak_recent20_loss"]

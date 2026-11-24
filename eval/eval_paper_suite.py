@@ -608,6 +608,13 @@ def _eval_q8_gguf(
     adv_rows: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     print(f"[Eval] Launching llama-server Q8_0: {gguf_path.name}...", flush=True)
+    from transformers import AutoTokenizer
+
+    try:
+        tok = AutoTokenizer.from_pretrained(BASE_ID, local_files_only=True)
+    except Exception:
+        tok = AutoTokenizer.from_pretrained(BASE_ID)
+
     base_url = f"http://127.0.0.1:{port}"
     log_path = CHECKPOINTS_DIR / "llama_paper_suite.log"
     log_f = open(log_path, "w", encoding="utf-8")
@@ -624,7 +631,7 @@ def _eval_q8_gguf(
         for sub in ("real_cf", "consent_5p", "long_50t"):
             budget = 3200 if sub == "long_50t" else 2048
             for r in by_sub.get(sub, []):
-                ctx = render_view(r, tok=None, budget=budget, include_recap=False).text
+                ctx = render_view(r, tok=tok, budget=budget, include_recap=False).text
                 sc = client.score_binary_paired(ctx, force_paired=True)
                 p_norm = float(sc["p_block_normal"])
                 p_rev = float(sc["p_block_reversed"])
@@ -675,7 +682,7 @@ def _eval_q8_gguf(
         adv_blind: list[dict[str, Any]] = []
         adv_leaky: list[dict[str, Any]] = []
         for r in adv_rows:
-            ctx = render_view(r, tok=None, budget=2048, include_recap=False).text
+            ctx = render_view(r, tok=tok, budget=2048, include_recap=False).text
             sc = client.score_binary_paired(ctx, force_paired=True)
             p_norm = float(sc["p_block_normal"])
             p_rev = float(sc["p_block_reversed"])
@@ -718,8 +725,18 @@ def _eval_q8_gguf(
                 )
         adv_sum = _summarize_adversarial(adv_blind, adv_leaky)
         return (
-            {"summary": frozen_sum, "binary_records": bin_recs, "replay_records": rep_recs},
-            {"summary": adv_sum, "blind_records": adv_blind, "leaky_records": adv_leaky},
+            {
+                "tokenizer_mode": "exact_hf_tokenizer",
+                "summary": frozen_sum,
+                "binary_records": bin_recs,
+                "replay_records": rep_recs,
+            },
+            {
+                "tokenizer_mode": "exact_hf_tokenizer",
+                "summary": adv_sum,
+                "blind_records": adv_blind,
+                "leaky_records": adv_leaky,
+            },
         )
     finally:
         proc.terminate()
@@ -781,10 +798,33 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Run Paper Phase A 5+1 model evaluation suite.")
     ap.add_argument("--unlock-frozen-test", action="store_true", required=True)
     ap.add_argument("--port", type=int, default=8093)
+    ap.add_argument("--refresh-q8-only", action="store_true", help="Refresh ONLY ours_track3_soup_q8 using exact HF tokenizer.")
     args = ap.parse_args()
 
     t0 = time.perf_counter()
     EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    frozen_rows = load_split_rows("frozen_test", unlock_frozen_test=args.unlock_frozen_test)
+    adv_rows = [json.loads(ln) for ln in ADV_PATH.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    q8_path = CHECKPOINTS_DIR / "automode-0.8b-track3-Q8_0.gguf"
+
+    if args.refresh_q8_only:
+        ext_path = EXPERIMENTS_DIR / "paper_external_frozen.json"
+        adv_path = EXPERIMENTS_DIR / "paper_adversarial_results.json"
+        ext_payload = json.loads(ext_path.read_text(encoding="utf-8"))
+        adv_payload = json.loads(adv_path.read_text(encoding="utf-8"))
+        q8_fr, q8_ad = _eval_q8_gguf(q8_path, args.port, frozen_rows, adv_rows)
+        ext_payload["models"]["ours_track3_soup_q8"] = q8_fr
+        adv_payload["models"]["ours_track3_soup_q8"] = q8_ad
+        ext_payload["q8_tokenizer_mode"] = "exact_hf_tokenizer"
+        adv_payload["q8_tokenizer_mode"] = "exact_hf_tokenizer"
+        ext_path.write_text(json.dumps(ext_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (EXPERIMENTS_DIR / "paper_external_frozen.md").write_text(_format_frozen_md(ext_payload["models"]), encoding="utf-8")
+        adv_path.write_text(json.dumps(adv_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (EXPERIMENTS_DIR / "paper_adversarial_results.md").write_text(_format_adv_md(adv_payload["models"]), encoding="utf-8")
+        print(_format_frozen_md(ext_payload["models"]), flush=True)
+        print(_format_adv_md(adv_payload["models"]), flush=True)
+        return
 
     # 1. Weight-Space Forensics (CPU safetensors)
     forensics = compute_weight_forensics()
@@ -793,10 +833,7 @@ def main() -> None:
     )
     print("[Step 2A] Wrote experiments/paper_weight_forensics.json", flush=True)
 
-    # 2. Load locked frozen_test (n=200) and adversarial_redteam (n=160)
-    frozen_rows = load_split_rows("frozen_test", unlock_frozen_test=args.unlock_frozen_test)
-    adv_rows = [json.loads(ln) for ln in ADV_PATH.read_text(encoding="utf-8").splitlines() if ln.strip()]
-
+    # 2. Load cached external HF models for full 5+1 suite
     mit_dir = Path(snapshot_download(MIT_WSP_ID, local_files_only=True))
     mapika_dir = Path(snapshot_download(MAPIKA_ID, local_files_only=True))
 
@@ -822,7 +859,6 @@ def main() -> None:
         raise RuntimeError(f"Frozen sanity mismatch: t2={t2_auroc}, t3={t3_auroc}")
 
     # Evaluate Q8_0 GGUF after releasing all PyTorch models
-    q8_path = CHECKPOINTS_DIR / "automode-0.8b-track3-Q8_0.gguf"
     q8_fr, q8_ad = _eval_q8_gguf(q8_path, args.port, frozen_rows, adv_rows)
     frozen_models["ours_track3_soup_q8"] = q8_fr
     adv_models["ours_track3_soup_q8"] = q8_ad
@@ -831,12 +867,14 @@ def main() -> None:
         "split": "frozen_test",
         "n_rows": len(frozen_rows),
         "elapsed_sec": round(time.perf_counter() - t0, 1),
+        "q8_tokenizer_mode": "exact_hf_tokenizer",
         "models": frozen_models,
     }
     adv_payload = {
         "split": "adversarial_redteam",
         "n_rows": len(adv_rows),
         "elapsed_sec": round(time.perf_counter() - t0, 1),
+        "q8_tokenizer_mode": "exact_hf_tokenizer",
         "models": adv_models,
     }
 

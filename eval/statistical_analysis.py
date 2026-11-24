@@ -280,24 +280,29 @@ def run_statistical_analysis() -> dict[str, Any]:
             "rb_leaky_rec": (1 - rb_leaky_arr),
         }
 
-    # 2. Pairwise Hypothesis Testing + Holm-Bonferroni
-    comparison_pairs = [
+    # 2. Pairwise Hypothesis Testing + Explicit Holm-Bonferroni Family (m = 16)
+    primary_pairs = [
         ("ours_track2_wsp", "base_qwen35_0.8b"),
-        ("ours_track2_wsp", "mit_wsp_0.8b"),
-        ("ours_track2_wsp", "mapika_decider_0.8b"),
+        ("ours_track3_soup_bf16", "base_qwen35_0.8b"),
         ("ours_track3_soup_bf16", "ours_track2_wsp"),
-        ("ours_track3_soup_bf16", "mit_wsp_0.8b"),
         ("ours_track3_soup_bf16", "mapika_decider_0.8b"),
+    ]
+    secondary_pairs = [
+        ("ours_track2_wsp", "mapika_decider_0.8b"),
+        ("mit_wsp_0.8b", "base_qwen35_0.8b"),
         ("ours_track3_soup_bf16", "ours_track3_soup_q8"),
     ]
+    holm_metrics = (
+        "frozen_real_cf_auroc_diff",
+        "frozen_consent_5p_mcnemar",
+        "frozen_all200_mcnemar",
+        "adv_acc_mcnemar",
+    )
 
-    pairwise_results: list[dict[str, Any]] = []
-    # Collect primary superiority p-values (excluding the Q8_0 equivalence pair) for Holm adjustment
-    superiority_p_refs: list[tuple[int, str, float]] = []
-    for idx_p, (ma, mb) in enumerate(comparison_pairs):
+    def _compute_pair_rec(ma: str, mb: str) -> dict[str, Any]:
         fa, fb = frozen_item_arrays[ma], frozen_item_arrays[mb]
         aa, ab = adv_item_arrays[ma], adv_item_arrays[mb]
-        rec = {
+        return {
             "model_a": ma,
             "model_b": mb,
             "frozen_real_cf_auroc_diff": _paired_bootstrap_auroc_diff(fa["rc_p"], fb["rc_p"], fa["rc_y"], rng),
@@ -310,19 +315,18 @@ def run_statistical_analysis() -> dict[str, Any]:
             "adv_attack_rec_mcnemar": _exact_mcnemar(aa["ab_atk_rec"], ab["ab_atk_rec"]),
             "adv_benign_acc_mcnemar": _exact_mcnemar(aa["ab_ben_acc"], ab["ab_ben_acc"]),
         }
-        pairwise_results.append(rec)
-        if mb != "ours_track3_soup_q8":
-            for mkey in (
-                "frozen_real_cf_auroc_diff",
-                "frozen_consent_5p_mcnemar",
-                "frozen_all200_mcnemar",
-                "adv_acc_mcnemar",
-            ):
-                superiority_p_refs.append((idx_p, mkey, float(rec[mkey]["p_value"])))
+
+    pairwise_results: list[dict[str, Any]] = [_compute_pair_rec(ma, mb) for ma, mb in primary_pairs]
+    superiority_p_refs: list[tuple[int, str, float]] = []
+    for idx_p, rec in enumerate(pairwise_results):
+        for mkey in holm_metrics:
+            superiority_p_refs.append((idx_p, mkey, float(rec[mkey]["p_value"])))
 
     holm_vals = _holm_adjust([x[2] for x in superiority_p_refs])
     for (idx_p, mkey, _), p_adj in zip(superiority_p_refs, holm_vals):
         pairwise_results[idx_p][mkey]["p_holm"] = p_adj if p_adj < 1e-4 else round(p_adj, 6)
+
+    secondary_comparisons: list[dict[str, Any]] = [_compute_pair_rec(ma, mb) for ma, mb in secondary_pairs]
 
     # Within-model Reasoning-Blind vs Leaky exact McNemar
     rb_tests = {}
@@ -396,9 +400,15 @@ def run_statistical_analysis() -> dict[str, Any]:
     return {
         "seed": SEED,
         "n_bootstrap": N_BOOT,
+        "holm_family": {
+            "m": len(superiority_p_refs),
+            "pairs": [f"{ma} vs {mb}" for ma, mb in primary_pairs],
+            "metrics": list(holm_metrics),
+        },
         "frozen_bootstrap_ci": frozen_cis,
         "adversarial_bootstrap_ci": adv_cis,
         "pairwise_tests": pairwise_results,
+        "secondary_comparisons": secondary_comparisons,
         "reasoning_blind_within_model_mcnemar": rb_tests,
         "frozen_error_analysis": frozen_error_analysis,
         "adversarial_error_analysis": adv_error_analysis,
@@ -449,7 +459,9 @@ def _format_stats_md(payload: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## 3. Pairwise Hypothesis Tests (Exact McNemar / Paired Bootstrap + Holm-Bonferroni)",
+            f"## 3. Primary Pairwise Hypothesis Tests (Exact McNemar / Paired Bootstrap + Holm-Bonferroni, m={payload['holm_family']['m']})",
+            "",
+            f"Holm family (`m={payload['holm_family']['m']}`): pairs={payload['holm_family']['pairs']}, metrics={payload['holm_family']['metrics']}",
             "",
             "| Comparison (`A` vs `B`) | `frozen real_cf` ΔAUROC (`p_holm`) | `frozen consent_5p` ΔAcc (`p_holm`) | `frozen All-200` ΔAcc (`p_holm`) | `adv Overall` ΔAcc (`p_holm`) |",
             "|---|---|---|---|---|",
@@ -470,6 +482,30 @@ def _format_stats_md(payload: dict[str, Any]) -> str:
             f"`{rc5['delta_acc_a_minus_b']:+.4f}` (`p={_ph(rc5)}`) | "
             f"`{r200['delta_acc_a_minus_b']:+.4f}` (`p={_ph(r200)}`) | "
             f"`{radv['delta_acc_a_minus_b']:+.4f}` (`p={_ph(radv)}`) |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 3b. Secondary / Reference Comparisons (Unadjusted Two-Sided Raw p-values)",
+            "",
+            "| Comparison (`A` vs `B`) | `frozen real_cf` ΔAUROC (`p`) | `frozen consent_5p` ΔAcc (`p`) | `frozen replay` ΔAcc (`p`) | `frozen All-200` ΔAcc (`p`) | `adv Overall` ΔAcc (`p`) |",
+            "|---|---|---|---|---|---|",
+        ]
+    )
+    for pw in payload["secondary_comparisons"]:
+        ra = pw["frozen_real_cf_auroc_diff"]
+        rc5 = pw["frozen_consent_5p_mcnemar"]
+        rrp = pw["frozen_replay_mcnemar"]
+        r200 = pw["frozen_all200_mcnemar"]
+        radv = pw["adv_acc_mcnemar"]
+        lines.append(
+            f"| `{pw['model_a']}` vs `{pw['model_b']}` | "
+            f"`{ra['delta_auroc_a_minus_b']:+.4f}` (`p={ra['p_value']:.4g}`) | "
+            f"`{rc5['delta_acc_a_minus_b']:+.4f}` (`p={rc5['p_value']:.4g}`) | "
+            f"`{rrp['delta_acc_a_minus_b']:+.4f}` (`p={rrp['p_value']:.4g}`) | "
+            f"`{r200['delta_acc_a_minus_b']:+.4f}` (`p={r200['p_value']:.4g}`) | "
+            f"`{radv['delta_acc_a_minus_b']:+.4f}` (`p={radv['p_value']:.4g}`) |"
         )
 
     lines.extend(["", "## 4. Fine-Grained Error Breakdown (Summary)", ""])

@@ -13389,6 +13389,7 @@
       ]
     },
     "ours_track3_soup_q8": {
+      "tokenizer_mode": "exact_hf_tokenizer",
       "summary": {
         "n_total": 160,
         "n_attack": 116,
@@ -16065,5 +16066,6 @@
         }
       ]
     }
-  }
+  },
+  "q8_tokenizer_mode": "exact_hf_tokenizer"
 }
