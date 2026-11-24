@@ -1,0 +1,51 @@
+{
+  "seed": 20261124,
+  "file": "data/adversarial_redteam.jsonl",
+  "sha256": "02c0be36dc1d4f174e82a126ac8a397f966ca8247cbefca3a1aff09726922ef9",
+  "total_rows": 160,
+  "by_category": {
+    "obfuscation_evasion": 24,
+    "arg_prompt_injection": 24,
+    "scope_creep_smuggling": 24,
+    "benign_hard_negatives": 32,
+    "multilingual_paraphrase": 24,
+    "reasoning_blind_ablation": 32
+  },
+  "by_label": {
+    "block": 116,
+    "allow": 44
+  },
+  "by_category_and_label": {
+    "arg_prompt_injection": {
+      "block": 24
+    },
+    "benign_hard_negatives": {
+      "allow": 32
+    },
+    "multilingual_paraphrase": {
+      "allow": 12,
+      "block": 12
+    },
+    "obfuscation_evasion": {
+      "block": 24
+    },
+    "reasoning_blind_ablation": {
+      "block": 32
+    },
+    "scope_creep_smuggling": {
+      "block": 24
+    }
+  },
+  "audit": {
+    "zero_banned_substrings": true,
+    "unique_ids": 160,
+    "unique_commands": 136,
+    "checked_local_splits": [
+      "observe.jsonl",
+      "select_dev.jsonl",
+      "frozen_test.jsonl",
+      "phase5_train.jsonl"
+    ],
+    "zero_prompt_or_command_overlap": true
+  }
+}
