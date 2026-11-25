@@ -274,3 +274,35 @@ def test_revision_controls_completeness_and_causality() -> None:
     assert ws["t3b_freeze_L0_14"]["step_snapshots"][-1]["h15_cos_vs_base_mean"] >= 0.9999
     assert ws["t3b_freeze_L0_14"]["peak_recent20_loss"] < ws["t3b_insitu_full"]["peak_recent20_loss"]
     assert ws["t3b_freeze_L0_14"]["peak_recent20_loss"] < ws["t3b_freeze_t2gates"]["peak_recent20_loss"]
+
+
+def test_r5_amplification_and_bootstrap_cis() -> None:
+    rc = _load_json(EXP_DIR / "paper_revision_controls.json")
+    assert "r5_base_and_bootstrap_cis" in rc
+    assert "r5_activation_amplification" in rc
+
+    r5a = rc["r5_base_and_bootstrap_cis"]
+    assert r5a["bootstrap_B"] == 10000
+    for q in ("Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"):
+        for pref in ("base", "track2", "track3"):
+            cfg = r5a["configs"][f"{pref}_{q}"]
+            for mkey in ("pearson_r", "p_block_mae", "margin_mae", "margin_mae_norm", "agreement_total_200"):
+                ci = cfg["bootstrap_ci95"][mkey]
+                assert ci["ci95_lo"] <= ci["point"] <= ci["ci95_hi"]
+
+    assert r5a["configs"]["track2_Q4_K_M"]["bootstrap_ci95"]["margin_mae"]["point"] > r5a["configs"]["base_Q4_K_M"]["bootstrap_ci95"]["margin_mae"]["point"]
+    assert r5a["configs"]["track2_Q4_K_M"]["bootstrap_ci95"]["margin_mae"]["point"] > r5a["configs"]["track3_Q4_K_M"]["bootstrap_ci95"]["margin_mae"]["point"]
+
+    diffs = {(d["a"], d["b"], d["metric"]): d for d in r5a["paired_differences"]}
+    d_dissoc = diffs[("r2d_Q8_0_backbone_t2_Q4_K", "r2b_Q4_K_M_6x_bf16", "pearson_r")]
+    assert d_dissoc["ci95_lo"] > 0.20 and d_dissoc["two_sided_p"] < 0.001
+
+    r5b = rc["r5_activation_amplification"]
+    assert r5b["sanity_t2_gguf_bf16_vs_native_pt"]["pearson_r_margin"] > 0.998
+    t2q4 = r5b["conditions"]["track2_Q4_K_M"]
+    t2q4_prot = r5b["conditions"]["track2_Q4_backbone_bf16_edits"]
+    assert t2q4["l15"]["amplification_vs_untouched_mean"] > 20.0
+    assert t2q4["l22"]["amplification_vs_untouched_mean"] > 20.0
+    assert t2q4_prot["l15"]["amplification_vs_untouched_mean"] > 20.0
+    assert r5b["conditions"]["track2_bf16_backbone_Q4_edits"]["logits"]["pearson_r_p_block"] > 0.95
+    assert r5b["conditions"]["track3_Q4_K_M"]["l15"]["amplification_vs_untouched_mean"] < 2.0

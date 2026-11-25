@@ -128,6 +128,69 @@ def build_markdown() -> str:
             f"`{dv['proxy_score']:+.3f}` (`{dv['real_cf_auroc']:.4f}` / `{dv['consent_5p_acc']:.4f}`) |"
         )
 
+    if "r5_base_and_bootstrap_cis" in data:
+        r5a = data["r5_base_and_bootstrap_cis"]
+        lines.extend(
+            [
+                "",
+                "## R5a. Unmodified Base GGUF Curve, Raw/Normalized `|Δm|`, and B=10,000 Bootstrap 95% CIs (`select_dev`)",
+                "",
+                "| Key | `bf16 |m|` | Raw `|Δm|` [95% CI] | Norm `|Δm|/|m|` [95% CI] | Pearson `r` [95% CI] | Agree [95% CI] | Signed Bias |",
+                "|---|---:|---|---|---|---|---:|",
+            ]
+        )
+        for ck, c in r5a["configs"].items():
+            b = c["bootstrap_ci95"]
+            mc, nc, rc, ac = b["margin_mae"], b["margin_mae_norm"], b["pearson_r"], b["agreement_total_200"]
+            lines.append(
+                f"| `{ck}` | `{c['pt_mean_abs_margin']:.3f}` | "
+                f"`{mc['point']:.3f}` [`{mc['ci95_lo']:.3f}`, `{mc['ci95_hi']:.3f}`] | "
+                f"`{nc['point']:.3f}` [`{nc['ci95_lo']:.3f}`, `{nc['ci95_hi']:.3f}`] | "
+                f"`{rc['point']:.3f}` [`{rc['ci95_lo']:.3f}`, `{rc['ci95_hi']:.3f}`] | "
+                f"`{ac['point']:.3f}` [`{ac['ci95_lo']:.3f}`, `{ac['ci95_hi']:.3f}`] | "
+                f"`{c['signed_margin_bias']:+.3f}` |"
+            )
+        lines.extend(
+            [
+                "",
+                "### Paired Bootstrap Differences (`B=10,000`)",
+                "",
+                "| Comparison (`A - B`) | Metric | Δ [95% CI] | Two-Sided `p` |",
+                "|---|---|---|---:|",
+            ]
+        )
+        for pd in r5a["paired_differences"]:
+            lines.append(
+                f"| `{pd['a']}` - `{pd['b']}` | `{pd['metric']}` | "
+                f"`{pd['delta_a_minus_b']:+.4f}` [`{pd['ci95_lo']:+.4f}`, `{pd['ci95_hi']:+.4f}`] | `{pd['two_sided_p']}` |"
+            )
+
+    if "r5_activation_amplification" in data:
+        r5b = data["r5_activation_amplification"]
+        lines.extend(
+            [
+                "",
+                "## R5b. Direct 4-Bit Internal `h15`/`h22` Drift & SwiGLU Gate Amplification (`select_dev` n=140, `gguf.dequantize`)",
+                "",
+                f"- Sanity check Track 2 BF16 GGUF vs. Native PT: `r={r5b['sanity_t2_gguf_bf16_vs_native_pt']['pearson_r_margin']:.6f}`, `mean|Δm|={r5b['sanity_t2_gguf_bf16_vs_native_pt']['mean_abs_margin_diff']:.4f}`, `max|Δm|={r5b['sanity_t2_gguf_bf16_vs_native_pt']['max_abs_margin_diff']:.4f}`",
+                f"- Sanity check Track 3 BF16 GGUF vs. Native PT: `r={r5b['sanity_t3_gguf_bf16_vs_native_pt']['pearson_r_margin']:.6f}`, `max|Δm|={r5b['sanity_t3_gguf_bf16_vs_native_pt']['max_abs_margin_diff']:.4f}`",
+                "",
+                "| Condition | `h15` Rel-L2 (cos) | L15 Edited-4 `|Δg|` (Amp vs Untouched / vs Base) | L22 Edited-4 `|Δg|` (Amp vs Untouched / vs Base) | Raw `|Δm|` (`r_p`, `r_llama`) |",
+                "|---|---|---|---|---|",
+            ]
+        )
+        for cname, cv in r5b["conditions"].items():
+            l15, l22, lg = cv["l15"], cv["l22"], cv["logits"]
+            b15 = f"{l15['amplification_vs_base_Q4_same4']:.1f}x" if "amplification_vs_base_Q4_same4" in l15 else "-"
+            b22 = f"{l22['amplification_vs_base_Q4_same4']:.1f}x" if "amplification_vs_base_Q4_same4" in l22 else "-"
+            rl = f"{lg['pearson_r_p_vs_llama_cpp']:.3f}" if "pearson_r_p_vs_llama_cpp" in lg else "-"
+            lines.append(
+                f"| `{cname}` | `{l15['h_rel_l2_drift']:.3f}` (`{l15['h_cos_vs_bf16']:.4f}`) | "
+                f"`{l15['edited4_mean_abs_delta']:.4f}` (`{l15['amplification_vs_untouched_mean']:.1f}x` / {b15}) | "
+                f"`{l22['edited4_mean_abs_delta']:.4f}` (`{l22['amplification_vs_untouched_mean']:.1f}x` / {b22}) | "
+                f"`{lg['margin_mae']:.3f}` (`{lg['pearson_r_p_block']:.3f}`, `{rl}`) |"
+            )
+
     return "\n".join(lines) + "\n"
 
 
