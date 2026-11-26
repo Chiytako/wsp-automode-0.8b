@@ -306,3 +306,95 @@ def test_r5_amplification_and_bootstrap_cis() -> None:
     assert t2q4_prot["l15"]["amplification_vs_untouched_mean"] > 20.0
     assert r5b["conditions"]["track2_bf16_backbone_Q4_edits"]["logits"]["pearson_r_p_block"] > 0.95
     assert r5b["conditions"]["track3_Q4_K_M"]["l15"]["amplification_vs_untouched_mean"] < 2.0
+
+
+def test_r6_theory_controls_and_generality() -> None:
+    rc = _load_json(EXP_DIR / "paper_revision_controls.json")
+    for sec in (
+        "r6a_kquant_q6_q5_investigation",
+        "r6b_jacobian_and_margin_decomp",
+        "r6c_bit_matched_controls",
+        "r6d_warmstart_fair_grad_and_backprop",
+        "r6e_multi_edit_generality",
+    ):
+        assert sec in rc, f"Missing R6 section: {sec}"
+
+    # R6a: GGUF tensor inventory + Q6_K/Q5_K_M L0_14 rescue & bf16_bb parity
+    r6a = rc["r6a_kquant_q6_q5_investigation"]
+    inv_q4 = r6a["gguf_tensor_inventory"]["track2_Q4_K_M"]
+    assert inv_q4["tensor_type_counts"] == {"F32": 140, "Q4_K": 132, "Q6_K": 27}
+    srv = r6a["server_configs"]
+    assert srv["t2_Q6_K_L0_14_q8_0"]["bootstrap_ci95"]["pearson_r"]["point"] > 0.96
+    assert srv["t2_Q6_K_L0_14_q8_0"]["bootstrap_ci95"]["margin_mae"]["point"] < 0.50
+    assert srv["t2_Q5_K_M_L0_14_q8_0"]["bootstrap_ci95"]["pearson_r"]["point"] > 0.96
+    assert srv["t2_Q5_K_M_L0_14_q8_0"]["bootstrap_ci95"]["margin_mae"]["point"] < 0.50
+    assert srv["t2_Q6_K_6x_bf16"]["bootstrap_ci95"]["margin_mae"]["point"] > 1.70
+    assert srv["t2_Q5_K_M_6x_bf16"]["bootstrap_ci95"]["margin_mae"]["point"] > 1.70
+    assert r6a["dequant_probes"]["track2_bf16_bb_Q6_edits"]["logits"]["pearson_r_p_block"] > 0.99
+
+    # R6b: SwiGLU input Jacobian + linearized prediction + causal 8-neuron attribution
+    r6b = rc["r6b_jacobian_and_margin_decomp"]
+    js = r6b["jacobian_stats"]
+    assert js["track2"]["l15"]["edited_jac_norm_mean"] > 3.5
+    assert js["track2"]["l15"]["jac_ratio_vs_untouched"] > 40.0
+    assert js["base"]["l15"]["edited_jac_norm_mean"] < 0.05
+    assert js["track3"]["l15"]["edited_jac_norm_mean"] < 0.10
+
+    lv = r6b["linearized_prediction_validation"]
+    assert lv["track2_Q8_0"]["l15"]["pearson_r_lin_vs_true"] > 0.99
+    assert lv["track2_Q6_K"]["l15"]["pearson_r_lin_vs_true"] > 0.99
+    assert lv["track2_Q4_K_M"]["l15"]["pearson_r_lin_vs_true"] > 0.92
+
+    ca = r6b["causal_8neuron_margin_attribution"]
+    assert ca["Q6_K"]["pct_total_abs_m_drift_removed_by_8neu_rescue"] > 90.0
+    assert ca["Q5_K_M"]["pct_total_abs_m_drift_removed_by_8neu_rescue"] > 85.0
+    for qfmt in ("Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"):
+        assert ca[qfmt]["bf16_inject_q_ed8_r_vs_full_q"] > 0.98
+
+    # R6c: Byte-budget-matched allocation controls (L0-14 < L15-23+embd / L9-23 yet beats both)
+    r6c = rc["r6c_bit_matched_controls"]
+    c6 = r6c["configs"]
+    assert c6["t2_Q4_K_M_L0_14_only_q8_0"]["gguf_mib"] < 655.0
+    assert c6["t2_Q4_K_M_L0_14_only_q8_0"]["bootstrap_ci95"]["pearson_r"]["point"] > 0.92
+    assert c6["t2_Q4_K_M_L15_23_embd_q8_0"]["gguf_mib"] > 660.0
+    assert c6["t2_Q4_K_M_L15_23_embd_q8_0"]["bootstrap_ci95"]["pearson_r"]["point"] < 0.60
+    assert c6["t2_Q4_K_M_L9_23_only_q8_0"]["gguf_mib"] > 660.0
+    assert c6["t2_Q4_K_M_L9_23_only_q8_0"]["bootstrap_ci95"]["pearson_r"]["point"] < 0.50
+    for d in r6c["paired_differences"]:
+        if d["metric"] == "pearson_r":
+            assert d["two_sided_p"] < 0.001
+    assert (
+        c6["base_Q4_K_M_L0_14_only_q8_0"]["bootstrap_ci95"]["margin_mae"]["point"]
+        < 0.25 * c6["base_Q4_K_M"]["bootstrap_ci95"]["margin_mae"]["point"]
+    )
+    assert (
+        c6["track3_Q4_K_M_L0_14_only_q8_0"]["bootstrap_ci95"]["margin_mae"]["point"]
+        < 0.25 * c6["track3_Q4_K_M"]["bootstrap_ci95"]["margin_mae"]["point"]
+    )
+
+    # R6d: Fair matched-subset gradient norms (all 20 steps) & backward dL/dh15 probe
+    r6d = rc["r6d_warmstart_fair_grad_and_backprop"]["conditions"]
+    for ck in ("t3a_insitu_base", "t3b_insitu_full", "t3b_freeze_t2gates", "t3b_lowlr_5x", "t3b_freeze_L0_14"):
+        assert r6d[ck]["n_shared_L15_23_params"] == 3566784
+        assert len(r6d[ck]["step_grad_logs"]) == 20
+        assert len(r6d[ck]["backward_snapshots"]) == 8
+    assert r6d["t3b_insitu_full"]["max_rms_dL_dh15_via_mlp"] > 7.0 * r6d["t3a_insitu_base"]["max_rms_dL_dh15_via_mlp"]
+    assert r6d["t3b_insitu_full"]["step_grad_logs"][4]["shared_L15_23_grad_norm"] > 300.0
+    assert r6d["t3b_freeze_t2gates"]["step_grad_logs"][4]["shared_L15_23_grad_norm"] > 300.0
+    assert r6d["t3b_freeze_L0_14"]["step_grad_logs"][4]["shared_L15_23_grad_norm"] < 40.0
+    assert r6d["t3a_insitu_base"]["step_grad_logs"][4]["shared_L15_23_grad_norm"] < 40.0
+
+    # R6e: Multi-edit structural generality (Prediction P2)
+    r6e = rc["r6e_multi_edit_generality"]
+    t1 = r6e["track1_L15_swiglu"]
+    assert t1["jacobian_l15"]["edited_jac_norm_mean"] > 3.5
+    assert t1["dequant_probes"]["t1_Q4_bb_bf16_L15"]["logits"]["pearson_r_p_block"] < 0.60
+    assert t1["dequant_probes"]["t1_Q4_bb_bf16_L15"]["logits"]["margin_mae"] > 2.0
+    assert t1["dequant_probes"]["t1_bf16_bb_Q4_L15"]["logits"]["pearson_r_p_block"] > 0.995
+    assert t1["dequant_probes"]["t1_bf16_bb_Q4_L15"]["logits"]["margin_mae"] < 0.15
+
+    mit = r6e["mit_wsp_down_proj_only"]
+    assert mit["jacobian_l15_edited64"]["edited_jac_norm_mean"] < 0.20
+    assert mit["jacobian_l19_edited64"]["edited_jac_norm_mean"] < 0.20
+    gc = mit["general_corpus_quant_parity"]
+    assert abs(gc["mit_wsp_Q4_K_M_vs_bf16"]["mean_kl_vs_bf16"] - gc["base_Q4_K_M_vs_bf16"]["mean_kl_vs_bf16"]) < 0.002

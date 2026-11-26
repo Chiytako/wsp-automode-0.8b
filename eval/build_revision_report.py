@@ -191,6 +191,183 @@ def build_markdown() -> str:
                 f"`{lg['margin_mae']:.3f}` (`{lg['pearson_r_p_block']:.3f}`, `{rl}`) |"
             )
 
+    def _ci_row(cfg_key: str, c: dict) -> str:
+        b = c["bootstrap_ci95"]
+        mc, nc, rc, ac = b["margin_mae"], b["margin_mae_norm"], b["pearson_r"], b["agreement_total_200"]
+        return (
+            f"| `{cfg_key}` | `{c['gguf_mib']:.2f}` | "
+            f"`{mc['point']:.4f}` [`{mc['ci95_lo']:.3f}`, `{mc['ci95_hi']:.3f}`] | "
+            f"`{nc['point']:.4f}` | "
+            f"`{rc['point']:.4f}` [`{rc['ci95_lo']:.3f}`, `{rc['ci95_hi']:.3f}`] | "
+            f"`{ac['point']:.3f}` | `{c['signed_margin_bias']:+.4f}` | "
+            f"`{c.get('real_cf_auroc', 0.0):.4f}` (`{c.get('real_cf_fpr', 0.0):.3f}` / `{c.get('real_cf_flip', 0.0):.3f}`) |"
+        )
+
+    if "r6a_kquant_q6_q5_investigation" in data:
+        r6a = data["r6a_kquant_q6_q5_investigation"]
+        lines.extend(
+            [
+                "",
+                "## R6a. K-Quant Tensor Inventory & Q6_K/Q5_K_M Resolution (`select_dev`, n=200 Server + n=140 Probes)",
+                "",
+                "| Variant | Size (MiB) | Tensor Counts | Edited Tensors | `token_embd` |",
+                "|---|---:|---|---|---|",
+            ]
+        )
+        for ik, iv in r6a["gguf_tensor_inventory"].items():
+            cnts = ", ".join(f"{t}={n}" for t, n in iv["tensor_type_counts"].items())
+            eds = ", ".join(f"{k.replace('blk.', 'L').replace('.weight', '')}={v}" for k, v in iv["track2_edited_tensor_types"].items())
+            lines.append(f"| `{ik}` | `{iv['gguf_mib']:.2f}` | {cnts} | {eds} | `{iv['token_embd_type']}` |")
+
+        lines.extend(
+            [
+                "",
+                "| Server Config | Size (MiB) | Raw `|Δm|` [95% CI] | Norm `|Δm|/|m|` | Pearson `r` [95% CI] | Agree | Signed Bias | `rc` AUROC (FPR / Flip) |",
+                "|---|---:|---|---:|---|---:|---:|---|",
+            ]
+        )
+        for ck, cv in r6a["server_configs"].items():
+            lines.append(_ci_row(ck, cv))
+        lines.append("")
+        lines.extend(["### R6a Paired Bootstrap Differences", "", "| Comparison (`A - B`) | Metric | Δ [95% CI] | `p` |", "|---|---|---|---:|"])
+        for pd in r6a["paired_differences"]:
+            lines.append(f"| `{pd['a']}` - `{pd['b']}` | `{pd['metric']}` | `{pd['delta_a_minus_b']:+.4f}` [`{pd['ci95_lo']:+.4f}`, `{pd['ci95_hi']:+.4f}`] | `{pd['two_sided_p']}` |")
+
+        lines.extend(
+            [
+                "",
+                "| Dequant Probe (`n=140`) | `h15` Rel-L2 | L15 `Δg` (Mean / `|Δg|` / Rel) | L22 `Δg` (Mean / `|Δg|` / Rel) | Unt. L15 Rel | Raw `|Δm|` (`bias`) | `r_p` (`r_llama`) |",
+                "|---|---:|---|---|---:|---|---|",
+            ]
+        )
+        for dk, dv in r6a["dequant_probes"].items():
+            l15, l22, lg = dv["l15"], dv["l22"], dv["logits"]
+            rl = f"{lg['pearson_r_p_vs_llama_cpp']:.4f}" if lg.get("pearson_r_p_vs_llama_cpp") is not None else "-"
+            lines.append(
+                f"| `{dk}` | `{l15['h_rel_l2_drift']:.4f}` | "
+                f"`{l15['edited4_signed_mean_delta']:+.4f}` / `{l15['edited4_mean_abs_delta']:.4f}` / `{l15['edited4_rel_shift_dg_over_g']:.4f}` | "
+                f"`{l22['edited4_signed_mean_delta']:+.4f}` / `{l22['edited4_mean_abs_delta']:.4f}` / `{l22['edited4_rel_shift_dg_over_g']:.4f}` | "
+                f"`{l15['untouched_rel_shift_dg_over_g']:.4f}` | `{lg['margin_mae']:.4f}` (`{lg['signed_margin_shift']:+.4f}`) | "
+                f"`{lg['pearson_r_p_block']:.4f}` (`{rl}`) |"
+            )
+
+    if "r6b_jacobian_and_margin_decomp" in data:
+        r6b = data["r6b_jacobian_and_margin_decomp"]
+        lines.extend(
+            [
+                "",
+                "## R6b. First-Order SwiGLU Input Jacobian Theory & Causal 8-Neuron Margin Attribution",
+                "",
+                "| Model / Layer | Edited `||w_gate||` | Edited `||w_up||` | Mean `||∇_h g_j||_2` (p95) | Untouched `||∇_h g_j||_2` | Ratio vs. Untouched |",
+                "|---|---:|---:|---|---:|---:|",
+            ]
+        )
+        for mk, mv in r6b["jacobian_stats"].items():
+            for lk, lv in mv.items():
+                lines.append(
+                    f"| `{mk}` `{lk}` | `{lv['edited_wg_row_norm_mean']:.4f}` | `{lv['edited_wu_row_norm_mean']:.4f}` | "
+                    f"`{lv['edited_jac_norm_mean']:.4f}` (`{lv['edited_jac_norm_p95']:.4f}`) | `{lv['untouched_jac_norm_mean']:.4f}` | `{lv['jac_ratio_vs_untouched']:.2f}x` |"
+                )
+
+        lines.extend(
+            [
+                "",
+                "| Format | L15 Taylor `r` (MAE / Pred vs. True `|Δg|`) | L22 Taylor `r` (MAE / Pred vs. True `|Δg|`) |",
+                "|---|---|---|",
+            ]
+        )
+        for lk, lv in r6b["linearized_prediction_validation"].items():
+            l15, l22 = lv["l15"], lv["l22"]
+            lines.append(
+                f"| `{lk}` | `{l15['pearson_r_lin_vs_true']:.4f}` (`{l15['mae_lin_vs_true']:.4f}` / `{l15['mean_abs_dg_pred']:.4f}` vs `{l15['mean_abs_dg_true']:.4f}`) | "
+                f"`{l22['pearson_r_lin_vs_true']:.4f}` (`{l22['mae_lin_vs_true']:.4f}` / `{l22['mean_abs_dg_pred']:.4f}` vs `{l22['mean_abs_dg_true']:.4f}`) |"
+            )
+
+        lines.extend(
+            [
+                "",
+                "| Format (`n=140`) | Full Q `|Δm|` (`bias`) | Inject Q L15 Ed4 (Bias) | Inject Q Ed8 `|Δm|` (`r` vs Full Q) | Rescue Ed8 -> Residual `|Δm|` (`bias`) | Drift Removed (%) |",
+                "|---|---:|---|---|---|---|",
+            ]
+        )
+        for fk, fv in r6b["causal_8neuron_margin_attribution"].items():
+            lines.append(
+                f"| `{fk}` | `{fv['full_q_margin_mae']:.4f}` (`{fv['full_q_signed_bias']:+.4f}`) | "
+                f"`{fv['bf16_inject_q_L15_ed4_mae']:.4f}` (`{fv['bf16_inject_q_L15_ed4_bias']:+.4f}`) | "
+                f"`{fv['bf16_inject_q_L15_L22_ed8_mae']:.4f}` (`{fv['bf16_inject_q_ed8_r_vs_full_q']:.4f}`) | "
+                f"`{fv['q_rescue_bf16_ed8_mae']:.4f}` (`{fv['q_rescue_bf16_ed8_bias']:+.4f}`) | `{fv['pct_total_abs_m_drift_removed_by_8neu_rescue']:.1f}%` |"
+            )
+
+    if "r6c_bit_matched_controls" in data:
+        r6c = data["r6c_bit_matched_controls"]
+        lines.extend(
+            [
+                "",
+                "## R6c. Byte-Budget-Matched K-Quant Allocation Controls (`select_dev`, n=200)",
+                "",
+                "| Config | Size (MiB) | Raw `|Δm|` [95% CI] | Norm `|Δm|/|m|` | Pearson `r` [95% CI] | Agree | Signed Bias | `rc` AUROC (FPR / Flip) |",
+                "|---|---:|---|---:|---|---:|---:|---|",
+            ]
+        )
+        for ck, cv in r6c["configs"].items():
+            lines.append(_ci_row(ck, cv))
+        lines.extend(["", "| Comparison (`A - B`) | Metric | Δ [95% CI] | `p` |", "|---|---|---|---:|"])
+        for pd in r6c["paired_differences"]:
+            lines.append(f"| `{pd['a']}` - `{pd['b']}` | `{pd['metric']}` | `{pd['delta_a_minus_b']:+.4f}` [`{pd['ci95_lo']:+.4f}`, `{pd['ci95_hi']:+.4f}`] | `{pd['two_sided_p']}` |")
+
+    if "r6d_warmstart_fair_grad_and_backprop" in data:
+        r6d = data["r6d_warmstart_fair_grad_and_backprop"]
+        lines.extend(
+            [
+                "",
+                f"## R6d. Fair Matched-Subset Gradients (`shared_L15_23`) & Backward `dL/dh15` Probe (`n_diag={r6d['n_diag_items']}`)",
+                "",
+                "| Condition | Total Params | `shared_L15_23` Params | Max Total Grad | Max `shared_L15_23` | Step-5 `shared_L15_23` | Max `dL/dh15_via_mlp` | Step 0 / 5 / 10 `dL/dh15` |",
+                "|---|---:|---:|---:|---:|---:|---:|---|",
+            ]
+        )
+        for ck, cv in r6d["conditions"].items():
+            s5 = cv["step_grad_logs"][4]["shared_L15_23_grad_norm"]
+            bp_map = {b["opt_step"]: b["rms_dL_dh15_via_mlp"] for b in cv["backward_snapshots"]}
+            lines.append(
+                f"| `{ck}` | `{cv['n_trainable_total']}` | `{cv['n_shared_L15_23_params']}` | "
+                f"`{cv['max_total_grad_norm']:.2f}` | `{cv['max_shared_L15_23_grad_norm']:.2f}` | `{s5:.2f}` | "
+                f"`{cv['max_rms_dL_dh15_via_mlp']:.4f}` | `{bp_map[0]:.4f}` / `{bp_map[5]:.4f}` / `{bp_map[10]:.4f}` |"
+            )
+
+    if "r6e_multi_edit_generality" in data:
+        r6e = data["r6e_multi_edit_generality"]
+        t1 = r6e["track1_L15_swiglu"]
+        mit = r6e["mit_wsp_down_proj_only"]
+        lines.extend(
+            [
+                "",
+                "## R6e. Multi-Edit Structural Generality (Prediction P2: Track 1 SwiGLU vs. MIT WSP `down_proj`-Only)",
+                "",
+                f"- **Track 1 (`L15` 4-neuron SwiGLU)**: `||∇_h g_j||_2 = {t1['jacobian_l15']['edited_jac_norm_mean']:.4f}` (`p95={t1['jacobian_l15']['edited_jac_norm_p95']:.4f}`, `{t1['jacobian_l15']['jac_ratio_vs_untouched']:.2f}x` untouched `{t1['jacobian_l15']['untouched_jac_norm_mean']:.4f}`).",
+                "",
+                "| Track 1 Probe (`n=140`) | `h15` Rel-L2 | L15 `Δg` (`mean` / `|Δg|` / Rel) | Raw `|Δm|` (`bias`) | `r_p` |",
+                "|---|---:|---|---:|---:|",
+            ]
+        )
+        for pk, pv in t1["dequant_probes"].items():
+            l15, lg = pv["l15"], pv["logits"]
+            lines.append(
+                f"| `{pk}` | `{l15['h_rel_l2_drift']:.4f}` | `{l15['edited4_signed_mean_delta']:+.4f}` / `{l15['edited4_mean_abs_delta']:.4f}` / `{l15['edited4_rel_shift_dg_over_g']:.4f}` | "
+                f"`{lg['margin_mae']:.4f}` (`{lg['signed_margin_shift']:+.4f}`) | `{lg['pearson_r_p_block']:.4f}` |"
+            )
+        lines.extend(
+            [
+                "",
+                f"- **MIT WSP (`L15` & `L19` `down_proj`-only, 64 cols each)**: L15 `||∇_h g_j||_2 = {mit['jacobian_l15_edited64']['edited_jac_norm_mean']:.4f}` (`{mit['jacobian_l15_edited64']['jac_ratio_vs_untouched']:.2f}x`), L19 `||∇_h g_j||_2 = {mit['jacobian_l19_edited64']['edited_jac_norm_mean']:.4f}` (`{mit['jacobian_l19_edited64']['jac_ratio_vs_untouched']:.2f}x`); Q4_K_M edited `|Δg|` = `{mit['l15_edited64_mean_abs_dg_q4']:.5f}` (`rel={mit['l15_edited64_rel_shift_dg_over_g_q4']:.4f}`) and `{mit['l19_edited64_mean_abs_dg_q4']:.5f}` (`rel={mit['l19_edited64_rel_shift_dg_over_g_q4']:.4f}`); `select_dev Q4_K_M` `raw|Δm|={mit['select_dev_q4']['logits']['margin_mae']:.4f}` (`r_p={mit['select_dev_q4']['logits']['pearson_r_p_block']:.4f}`).",
+                "",
+                "| `GENERAL_CORPUS` (2,026 tokens) | Perplexity | Mean KL vs. BF16 | Mean Logprob L1 vs. BF16 |",
+                "|---|---:|---:|---:|",
+            ]
+        )
+        for gk, gv in mit["general_corpus_quant_parity"].items():
+            lines.append(f"| `{gk}` | `{gv['perplexity']:.4f}` | `{gv['mean_kl_vs_bf16']:.6f}` | `{gv['mean_logprob_l1_vs_bf16']:.5f}` |")
+
     return "\n".join(lines) + "\n"
 
 
