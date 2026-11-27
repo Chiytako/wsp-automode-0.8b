@@ -398,3 +398,130 @@ def test_r6_theory_controls_and_generality() -> None:
     assert mit["jacobian_l19_edited64"]["edited_jac_norm_mean"] < 0.20
     gc = mit["general_corpus_quant_parity"]
     assert abs(gc["mit_wsp_Q4_K_M_vs_bf16"]["mean_kl_vs_bf16"] - gc["base_Q4_K_M_vs_bf16"]["mean_kl_vs_bf16"]) < 0.002
+
+
+def test_r7_generality_baselines_and_cli() -> None:
+    from scripts.quantize_upstream_q8 import plan_upstream_overrides
+
+    rc = _load_json(EXP_DIR / "paper_revision_controls.json")
+
+    # R7a: Same-8-neuron component ablation, dose-response, and opposite-sign cancellation
+    r7a = rc["r7a_p2_ablation_doseresponse_and_cancellation"]
+    ca = r7a["component_ablation"]
+    for key in ("down_only_rms_matched", "down_only_frob_matched"):
+        assert ca[key]["swiglu_jac_l15_mean"] < 0.05
+        assert ca[key]["margin_jac_h15_l2_mean"] < 20.0
+        assert ca[key]["q4_k_m_parity"]["agree_140"] > 0.98
+    assert ca["gate_up_only"]["l15_mlp_jac_spec_mean"] > 3.0
+    assert ca["gate_up_only"]["general_corpus_q4_vs_bf16"]["mean_kl_vs_bf16"] > 0.095
+    assert ca["full_t2"]["margin_jac_h15_l2_mean"] > 90.0
+    assert ca["full_t2"]["q4_k_m_parity"]["agree_140"] < 0.70
+
+    dose = r7a["dose_response"]
+    assert len(dose) == 7
+    assert all(dose[i]["swiglu_jac_l15_mean"] < dose[i + 1]["swiglu_jac_l15_mean"] for i in range(6))
+    assert all(dose[i]["margin_jac_h15_l2_mean"] < dose[i + 1]["margin_jac_h15_l2_mean"] for i in range(6))
+
+    cancel = r7a["sign_cancellation_forensics"]
+    assert cancel["mean_dm_weight_only"] > 0.5
+    assert cancel["mean_dm_upstream_only"] < -1.0
+    assert cancel["frac_prompts_opposite_sign_dm"] > 0.65
+    assert cancel["cos_dm_wt_vs_up"] < -0.5
+
+    # R7b & R7c: HAWQ-V2 / AWQ baselines, OOF & external calibration, non-pooled Taylor
+    r7b = rc["r7b_hawq_awq_sensitivity_baselines"]
+    r7c = rc["r7c_calibration_asymmetric_risk_and_taylor_controls"]
+    assert "blk.0" in r7b["hawq_block_chosen"] and "blk.15" in r7b["hawq_block_chosen"]
+    cfgs = r7c["calibrated_and_risk_configs"]
+    hq = cfgs["t2_Q4_hawq_block_q8_0"]
+    assert hq["gguf_mib"] < 645.0
+    assert hq["bootstrap_ci95"]["pearson_r"]["point"] > 0.96
+    assert hq["bootstrap_ci95"]["agreement_total_200"]["point"] > 0.93
+    l0_14 = cfgs["t2_Q4_L0_14_only_q8_0"]
+    assert l0_14["gguf_mib"] < 655.0
+    assert l0_14["bootstrap_ci95"]["pearson_r"]["point"] > 0.92
+    assert l0_14["cal_oof_agree_200"]["point"] > 0.94
+    assert l0_14["cal_ext_agree_200"] > 0.94
+    assert cfgs["t2_Q4_awq_block_q8_0"]["bootstrap_ci95"]["pearson_r"]["point"] < 0.70
+    assert cfgs["t2_Q4_awq_tensor_q8_0"]["bootstrap_ci95"]["pearson_r"]["point"] < 0.75
+
+    assert cfgs["track2_Q6_K"]["bootstrap_ci95"]["agreement_total_200"]["point"] < 0.85
+    assert cfgs["track2_Q6_K"]["cal_oof_agree_200"]["point"] > 0.94
+    assert cfgs["track2_Q4_K_M"]["cal_oof_agree_200"]["point"] < 0.80
+    assert cfgs["t2_Q4_6x_bf16"]["cal_oof_agree_200"]["point"] < 0.80
+
+    ty15 = r7c["taylor_direction_and_nonpooled_controls"]["Q4_K_M"]["l15"]
+    assert ty15["within_neuron_r_dir_signed_mean"] > 0.95
+    assert ty15["within_neuron_r_dir_abs_mean"] > 0.88
+    assert ty15["within_neuron_r_norm_only_mean"] < 0.10
+    assert ty15["within_neuron_r_random_rot_mean"] < 0.35
+
+    # R7d: 3-seed warm-start controls & direct pre-activation receptive field
+    r7d = rc["r7d_warmstart_controls_3seeds_and_receptive_field"]
+    assert r7d["seeds"] == [20261124, 20261125, 20261126]
+    c7d = r7d["conditions"]
+    for cname in (
+        "t3a_insitu_base",
+        "t3b_insitu_full",
+        "t3b_freeze_t2gates",
+        "t3b_freeze_L0_14",
+        "t3b_freeze_L9_23",
+        "t3b_lowlr_5x",
+        "t3b_clip025_warmup25",
+    ):
+        assert len(c7d[cname]["per_seed"]) == 3
+    frz = c7d["t3b_freeze_L0_14"]["summary_mean_std"]
+    assert frz["max_total_grad_norm"]["mean"] < 100.0
+    assert frz["end_preact_frac_gt0"]["mean"] == 0.5
+    assert frz["step12_rc_auroc"]["mean"] > 0.85
+    for bad_c in ("t3b_insitu_full", "t3b_freeze_t2gates"):
+        assert c7d[bad_c]["summary_mean_std"]["max_total_grad_norm"]["mean"] > 2000.0
+        assert c7d[bad_c]["summary_mean_std"]["end_preact_a_mean"]["mean"] < -3.0
+    assert c7d["t3b_freeze_L9_23"]["summary_mean_std"]["max_L0_8_grad_norm"]["mean"] > 800.0
+    assert c7d["t3b_freeze_L9_23"]["summary_mean_std"]["end_preact_a_mean"]["mean"] < -2.5
+    assert c7d["t3b_clip025_warmup25"]["summary_mean_std"]["max_L0_8_grad_norm"]["mean"] > 500.0
+
+    # R7e: Pure-attention cross-architecture replication (Llama-3.2-1B-Instruct)
+    r7e = rc["r7e_second_arch_llama32_1b"]
+    assert r7e["q4_k_m_fallback_warnings"] == []
+    assert r7e["bf16_gguf_sanity"]["pearson_r"] > 0.998
+    srv = r7e["server_configs"]
+    assert srv["llama32_edit_bf16_srv"]["pearson_r"]["point"] > 0.995
+    assert r7e["jacobians"]["edit_l10_ratio"] > 20.0
+    assert r7e["down_only_rms_matched_q4"]["agree_140"] > 0.98
+    assert srv["llama32_edit_L0_9_only_q8_0"]["pearson_r"]["point"] > 0.99
+    assert srv["llama32_edit_L0_9_only_q8_0"]["raw_agree_140"]["point"] > 0.98
+    assert srv["llama32_edit_hawq_block_q8_0"]["pearson_r"]["point"] > 0.98
+    assert srv["llama32_edit_hawq_block_q8_0"]["raw_agree_140"]["point"] > 0.97
+    assert srv["llama32_edit_6x_bf16"]["pearson_r"]["point"] < 0.95
+    assert srv["llama32_edit_Q4_K_M"]["pearson_r"]["point"] < 0.95
+    assert r7e["taylor_within_neuron"]["Q4_K_M"]["within_neuron_dir_signed_mean"] > 0.97
+    assert r7e["taylor_within_neuron"]["Q4_K_M"]["within_neuron_random_rot_mean"] < 0.25
+
+    # Standalone CLI unit test across Qwen3.5 & Llama tensor layouts
+    qwen_tns = [
+        ("token_embd.weight", "BF16"),
+        ("blk.0.attn_norm.weight", "F32"),
+        ("blk.0.attn_qkv_gate.weight", "BF16"),
+        ("blk.14.ffn_gate.weight", "BF16"),
+        ("blk.15.ffn_gate.weight", "BF16"),
+        ("blk.22.ffn_down.weight", "BF16"),
+    ]
+    ov_def = plan_upstream_overrides(qwen_tns, edit_layer=15, upstream_quant="Q8_0", include_embd=False, include_edit_layer=False)
+    assert ov_def == {"blk.0.attn_qkv_gate.weight": "q8_0", "blk.14.ffn_gate.weight": "q8_0"}
+    ov_inc = plan_upstream_overrides(qwen_tns, edit_layer=15, upstream_quant="Q8_0", include_embd=True, include_edit_layer=True)
+    assert ov_inc == {
+        "token_embd.weight": "q8_0",
+        "blk.0.attn_qkv_gate.weight": "q8_0",
+        "blk.14.ffn_gate.weight": "q8_0",
+        "blk.15.ffn_gate.weight": "q8_0",
+    }
+
+    llama_tns = [
+        ("token_embd.weight", "BF16"),
+        ("blk.9.attn_q.weight", "BF16"),
+        ("blk.10.ffn_gate.weight", "BF16"),
+        ("blk.15.ffn_down.weight", "BF16"),
+    ]
+    ov_ll = plan_upstream_overrides(llama_tns, edit_layer=10, upstream_quant="Q8_0", include_embd=False, include_edit_layer=False)
+    assert ov_ll == {"blk.9.attn_q.weight": "q8_0"}

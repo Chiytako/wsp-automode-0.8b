@@ -368,6 +368,140 @@ def build_markdown() -> str:
         for gk, gv in mit["general_corpus_quant_parity"].items():
             lines.append(f"| `{gk}` | `{gv['perplexity']:.4f}` | `{gv['mean_kl_vs_bf16']:.6f}` | `{gv['mean_logprob_l1_vs_bf16']:.5f}` |")
 
+    if "r7a_p2_ablation_doseresponse_and_cancellation" in data:
+        r7a = data["r7a_p2_ablation_doseresponse_and_cancellation"]
+        lines.extend(
+            [
+                "",
+                "## R7a. Same-8-Neuron Component Ablation, Dose-Response & Opposite-Sign Cancellation",
+                "",
+                "| Variant | Modified | Frobenius | RMS | SwiGLU `J_15` | `||dMLP/dh||_2` | `||dm/dh_15||_2` | `BF16` `rc` AUROC | `Q4_K_M` MAE (`bias`) | `Q4` `r_p` | `Q4` Agree | Corpus KL |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for vk, vv in r7a["component_ablation"].items():
+            q4 = vv["q4_k_m_parity"]
+            lines.append(
+                f"| `{vk}` | `{vv['modified_elements']}` | `{vv['frobenius_norm']:.2f}` | `{vv['rms']:.4f}` | "
+                f"`{vv['swiglu_jac_l15_mean']:.3f}` | `{vv['l15_mlp_jac_spec_mean']:.3f}` | `{vv['margin_jac_h15_l2_mean']:.2f}` | "
+                f"`{vv['bf16_perf']['rc_auroc']:.4f}` | `{q4['raw_margin_mae']:.4f}` (`{q4['signed_margin_bias']:+.4f}`) | "
+                f"`{q4['pearson_r_p']:.4f}` | `{q4['agree_140']:.4f}` | `{vv['general_corpus_q4_vs_bf16']['mean_kl_vs_bf16']:.5f}` |"
+            )
+        lines.extend(
+            [
+                "",
+                "| Dose `alpha` | RMS | SwiGLU `J_15` | `||dm/dh_15||_2` | `BF16` `rc` AUROC | `Q4` MAE | `Q4` `r_p` | `Q4` Agree |",
+                "|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for row in r7a["dose_response"]:
+            q4 = row["q4_k_m_parity"]
+            lines.append(
+                f"| `{row['alpha']:.2f}` | `{row['rms']:.4f}` | `{row['swiglu_jac_l15_mean']:.3f}` | `{row['margin_jac_h15_l2_mean']:.2f}` | "
+                f"`{row['bf16_perf']['rc_auroc']:.4f}` | `{q4['raw_margin_mae']:.4f}` | `{q4['pearson_r_p']:.4f}` | `{q4['agree_140']:.4f}` |"
+            )
+        cf = r7a["sign_cancellation_forensics"]
+        lines.extend(
+            [
+                "",
+                f"- **Opposite-sign cancellation (`n={cf['n_prompts']}`)**: weight-only `Δm = {cf['mean_dm_weight_only']:+.4f}` (`|Δm|={cf['mean_abs_dm_weight_only']:.4f}`), "
+                f"upstream-only `Δm = {cf['mean_dm_upstream_only']:+.4f}` (`|Δm|={cf['mean_abs_dm_upstream_only']:.4f}`), "
+                f"both `Δm = {cf['mean_dm_both']:+.4f}` (`|Δm|={cf['mean_abs_dm_both']:.4f}`); opposite-sign prompts = `{cf['frac_prompts_opposite_sign_dm']:.4f}`, cosine = `{cf['cos_dm_wt_vs_up']:+.4f}`.",
+            ]
+        )
+
+    if "r7b_hawq_awq_sensitivity_baselines" in data and "r7c_calibration_asymmetric_risk_and_taylor_controls" in data:
+        r7b = data["r7b_hawq_awq_sensitivity_baselines"]
+        r7c = data["r7c_calibration_asymmetric_risk_and_taylor_controls"]
+        lines.extend(
+            [
+                "",
+                f"## R7b & R7c. HAWQ-V2/AWQ Sensitivity Baselines (`<= {r7b['target_l0_14_mib']} MiB`), OOF/External Calibration & Asymmetric Risk",
+                "",
+                f"- **HAWQ block selection**: `{r7b['hawq_block_chosen']}`",
+                f"- **AWQ block selection**: `{r7b['awq_block_chosen']}`",
+                "",
+                "| Config | Size (MiB) | `bias` | Raw MAE (`Cal OOF`) | Pearson `r` [95% CI] | Raw Agree (`200`) | OOF Cal (`200`) | Ext Cal (`200`) | FN (`raw->cal`) | FP (`raw->cal`) |",
+                "|---|---:|---:|---|---:|---:|---:|---:|---|---|",
+            ]
+        )
+        for ck, cv in r7c["calibrated_and_risk_configs"].items():
+            bs = cv["bootstrap_ci95"]
+            rp = bs["pearson_r"]
+            lines.append(
+                f"| `{ck}` | `{cv['gguf_mib']:.2f}` | `{cv['signed_margin_bias']:+.3f}` | `{bs['margin_mae']['point']:.4f}` (`{cv['cal_oof_margin_mae']:.4f}`) | "
+                f"`{rp['point']:.4f}` [`{rp['ci95_lo']:.4f}`, `{rp['ci95_hi']:.4f}`] | `{bs['agreement_total_200']['point']:.4f}` | "
+                f"`{cv['cal_oof_agree_200']['point']:.4f}` | `{cv['cal_ext_agree_200']:.4f}` | "
+                f"`{cv['raw_underblock_fn_vs_bf16']:.3f}->{cv['cal_underblock_fn_vs_bf16']:.3f}` | `{cv['raw_overblock_fp_vs_bf16']:.3f}->{cv['cal_overblock_fp_vs_bf16']:.3f}` |"
+            )
+        ed = r7c["error_decomposition_q4"]
+        lines.extend(
+            [
+                "",
+                f"- **Q4_K_M Error Decomposition**: Base raw MAE = `{ed['base_generic_raw_mae']:.4f}` (drops `{ed['base_generic_raw_mae']/ed['base_l0_14_raw_mae']:.1f}x` to `{ed['base_l0_14_raw_mae']:.4f}` under `L0-14 Q8_0`), "
+                f"Track 2 total = `{ed['track2_total_raw_mae']:.4f}` (excess `+{ed['track2_excess_over_base']:.4f}`), Track 3 = `{ed['track3_q4_raw_mae']:.4f}` -> `{ed['track3_l0_14_raw_mae']:.4f}`.",
+                "",
+                "| Format | `L15` Within-Neu Signed `r` | `L15` Within-Neu `|Δg|` `r` | Norm-Only `r` | Iso Gain×Norm `r` | Random Rot `r` | `L22` Within-Neu Signed `r` |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for qt, tv in r7c["taylor_direction_and_nonpooled_controls"].items():
+            l15t, l22t = tv["l15"], tv["l22"]
+            lines.append(
+                f"| `{qt}` | `{l15t['within_neuron_r_dir_signed_mean']:.4f}` | `{l15t['within_neuron_r_dir_abs_mean']:.4f}` | "
+                f"`{l15t['within_neuron_r_norm_only_mean']:.4f}` | `{l15t['within_neuron_r_iso_gain_x_norm_mean']:.4f}` | "
+                f"`{l15t['within_neuron_r_random_rot_mean']:.4f}` | `{l22t['within_neuron_r_dir_signed_mean']:.4f}` |"
+            )
+
+    if "r7d_warmstart_controls_3seeds_and_receptive_field" in data:
+        r7d = data["r7d_warmstart_controls_3seeds_and_receptive_field"]
+        lines.extend(
+            [
+                "",
+                f"## R7d. 3-Seed Warm-Start Controls (`seeds={r7d['seeds']}`, `steps={r7d.get('n_opt_steps', 12)}`) & Direct Pre-Activation `a_j`",
+                "",
+                "| Condition | Peak Loss | Max Total Grad | Max `L0-8` Grad | Max `shared_L15_23` | `end a_j mean` | `frac(a_j>0)` (`start->end`) | Step-12 `rc` AUROC | Step-12 `c5p` Acc |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for ck, cv in r7d["conditions"].items():
+            sm = cv["summary_mean_std"]
+            lines.append(
+                f"| `{ck}` | `{sm['peak_recent20_loss']['mean']:.2f}±{sm['peak_recent20_loss']['std']:.2f}` | "
+                f"`{sm['max_total_grad_norm']['mean']:.1f}±{sm['max_total_grad_norm']['std']:.1f}` | "
+                f"`{sm['max_L0_8_grad_norm']['mean']:.1f}±{sm['max_L0_8_grad_norm']['std']:.1f}` | "
+                f"`{sm['max_shared_L15_23_grad_norm']['mean']:.1f}±{sm['max_shared_L15_23_grad_norm']['std']:.1f}` | "
+                f"`{sm['end_preact_a_mean']['mean']:+.2f}±{sm['end_preact_a_mean']['std']:.2f}` | "
+                f"`{sm['start_preact_frac_gt0']['mean']:.2f}->{sm['end_preact_frac_gt0']['mean']:.2f}±{sm['end_preact_frac_gt0']['std']:.2f}` | "
+                f"`{sm['step12_rc_auroc']['mean']:.3f}±{sm['step12_rc_auroc']['std']:.3f}` | "
+                f"`{sm['step12_c5p_acc']['mean']:.3f}±{sm['step12_c5p_acc']['std']:.3f}` |"
+            )
+
+    if "r7e_second_arch_llama32_1b" in data:
+        r7e = data["r7e_second_arch_llama32_1b"]
+        je = r7e["jacobians"]
+        lines.extend(
+            [
+                "",
+                f"## R7e. Cross-Architecture Pure-Attention Replication (`{r7e['model_id']}`, layers `{r7e['edited_layers']}`)",
+                "",
+                f"- **BF16 sanity**: `r={r7e['bf16_gguf_sanity']['pearson_r']:.5f}`, `MAE={r7e['bf16_gguf_sanity']['margin_mae']:.4f}`; "
+                f"`BF16 rc AUROC = {r7e['bf16_eval_140']['rc_auroc']:.4f}`; `Q4_K_M` fallback warnings = `{len(r7e['q4_k_m_fallback_warnings'])}`.",
+                f"- **Jacobians & Same-8-Neuron Control**: `L10` SwiGLU `J={je['edit_l10_swiglu_mean']:.4f}` (`{je['edit_l10_ratio']:.2f}x` untouched), "
+                f"`||dm/dh_10||_2 = {je['edit_common']['margin_jac_h10_l2_mean']:.2f}` vs. RMS-matched `down_only` `{je['down_only_rms_matched_common']['margin_jac_h10_l2_mean']:.2f}` "
+                f"(`Q4_K_M` agree = `{r7e['down_only_rms_matched_q4']['agree_140']:.4f}`). `HAWQ` selected `{r7e['hawq_selected_blocks']}`.",
+                "",
+                "| Llama-3.2 Server Config | Size (MiB) | `bias` | MAE | Pearson `r` [95% CI] | Raw Agree (`140`) | OOF Cal (`140`) |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for sk, sv in r7e["server_configs"].items():
+            rp = sv["pearson_r"]
+            lines.append(
+                f"| `{sk}` | `{sv['gguf_mib']:.2f}` | `{sv['signed_margin_bias']:+.4f}` | `{sv['margin_mae']['point']:.4f}` | "
+                f"`{rp['point']:.4f}` [`{rp['ci95_lo']:.4f}`, `{rp['ci95_hi']:.4f}`] | `{sv['raw_agree_140']['point']:.4f}` | `{sv['cal_oof_agree_140']['point']:.4f}` |"
+            )
+
     return "\n".join(lines) + "\n"
 
 
